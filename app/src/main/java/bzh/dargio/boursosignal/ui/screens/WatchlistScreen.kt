@@ -10,25 +10,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -40,74 +35,49 @@ import bzh.dargio.boursosignal.di.AppContainer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WatchlistScreen(container: AppContainer, onOpen: (String) -> Unit) {
-    val vm: WatchlistViewModel = viewModel(
-        factory = viewModelFactory { initializer { WatchlistViewModel(container) } }
-    )
+fun WatchlistScreen(container: AppContainer, onOpen: (String) -> Unit, onSearch: () -> Unit) {
+    val vm: WatchlistViewModel = viewModel(factory = viewModelFactory { initializer { WatchlistViewModel(container) } })
     val state by vm.uiState.collectAsState()
-    var showAdd by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Valeurs suivies") },
-                actions = {
-                    IconButton(onClick = { vm.refresh() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Rafraîchir")
-                    }
-                },
+                actions = { IconButton(onClick = { vm.refresh() }) { Icon(Icons.Filled.Refresh, contentDescription = "Rafraîchir") } },
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAdd = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Ajouter une valeur")
-            }
+            ExtendedFloatingActionButton(
+                onClick = onSearch,
+                icon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                text = { Text("Ajouter") },
+            )
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.rows, key = { it.ticker }) { row ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable { onOpen(row.ticker) },
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column {
-                            Text(row.ticker, fontWeight = FontWeight.SemiBold)
-                            Text(row.name, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                            row.signalLabel?.let { Text(it, style = androidx.compose.material3.MaterialTheme.typography.labelMedium) }
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(row.priceLabel)
-                            Text(row.changeLabel)
+        if (state.rows.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(padding).padding(24.dp)) {
+                Text("Aucune valeur suivie.", fontWeight = FontWeight.SemiBold)
+                Text("Appuie sur « Ajouter » pour chercher une valeur dans la bibliothèque, ou ajoute-les depuis l'onglet Idées.",
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(state.rows, key = { it.ticker }) { row ->
+                    Card(Modifier.fillMaxWidth().clickable { onOpen(row.ticker) }) {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text(row.ticker, fontWeight = FontWeight.SemiBold)
+                                Text(row.name, style = MaterialTheme.typography.bodySmall)
+                                row.signalLabel?.let { Text(it, style = MaterialTheme.typography.labelMedium) }
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(row.priceLabel)
+                                Text(row.changeLabel)
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    if (showAdd) {
-        var ticker by remember { mutableStateOf("") }
-        var name by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAdd = false },
-            confirmButton = {
-                TextButton(onClick = { vm.add(ticker, name); showAdd = false }) { Text("Ajouter") }
-            },
-            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("Annuler") } },
-            title = { Text("Ajouter une valeur") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(ticker, { ticker = it }, label = { Text("Ticker (ex. AIR.PA)") })
-                    OutlinedTextField(name, { name = it }, label = { Text("Nom (ex. Airbus)") })
-                }
-            },
-        )
     }
 }

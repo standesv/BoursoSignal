@@ -41,9 +41,7 @@ private sealed class Dest(val route: String, val label: String, val icon: ImageV
     data object Settings : Dest("settings", "Réglages", Icons.Filled.Settings)
 }
 
-private val bottomDestinations = listOf(
-    Dest.Ideas, Dest.Watchlist, Dest.Portfolio, Dest.Alerts, Dest.Settings,
-)
+private val bottomDestinations = listOf(Dest.Ideas, Dest.Watchlist, Dest.Portfolio, Dest.Alerts, Dest.Settings)
 
 @Composable
 fun AppRoot(container: AppContainer) {
@@ -71,11 +69,7 @@ fun AppRoot(container: AppContainer) {
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = Dest.Ideas.route,
-            modifier = Modifier.padding(padding),
-        ) {
+        NavHost(navController = navController, startDestination = Dest.Ideas.route, modifier = Modifier.padding(padding)) {
             composable(Dest.Ideas.route) {
                 DashboardScreen(
                     container = container,
@@ -85,36 +79,27 @@ fun AppRoot(container: AppContainer) {
                 )
             }
             composable(Dest.Watchlist.route) {
-                WatchlistScreen(container, onOpen = { navController.navigate("detail/$it") })
+                WatchlistScreen(
+                    container = container,
+                    onOpen = { navController.navigate("detail/$it") },
+                    onSearch = { navController.navigate("search") },
+                )
             }
             composable(Dest.Portfolio.route) { PortfolioScreen(container) }
-            composable(Dest.Alerts.route) {
-                AlertsScreen(container, onOpen = { navController.navigate("detail/$it") })
-            }
+            composable(Dest.Alerts.route) { AlertsScreen(container, onOpen = { navController.navigate("detail/$it") }) }
             composable(Dest.Settings.route) { SettingsScreen(container) }
             composable("search") {
-                SearchScreen(
-                    container = container,
-                    onBack = { navController.popBackStack() },
-                    onOpen = { navController.navigate("detail/$it") },
-                )
+                SearchScreen(container = container, onBack = { navController.popBackStack() }, onOpen = { navController.navigate("detail/$it") })
             }
             composable("detail/{ticker}") { entry ->
                 val ticker = entry.arguments?.getString("ticker").orEmpty()
-                InstrumentDetailScreen(
-                    container = container,
-                    ticker = ticker,
-                    onBack = { navController.popBackStack() },
-                    onBacktest = { navController.navigate("backtest/$ticker") },
-                )
+                InstrumentDetailScreen(container = container, ticker = ticker, onBack = { navController.popBackStack() }, onBacktest = { navController.navigate("backtest/$ticker") })
             }
             composable("backtest/{ticker}") { entry ->
                 val ticker = entry.arguments?.getString("ticker").orEmpty()
                 BacktestScreen(container, ticker, onBack = { navController.popBackStack() })
             }
-            composable("paper") {
-                PaperTradingScreen(container, onBack = { navController.popBackStack() })
-            }
+            composable("paper") { PaperTradingScreen(container, onBack = { navController.popBackStack() }) }
         }
     }
 }

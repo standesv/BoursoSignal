@@ -74,6 +74,7 @@ data class Opportunity(
     val reasons: List<String>,
     val price: Double,
     val date: String,
+    val risk: RiskLevel = RiskLevel.MEDIUM,
 )
 
 /**
@@ -121,6 +122,18 @@ object StanceEvaluator {
             }
             else -> reasons += "RSI sain (${fmt(rsi)})"
         }
+
+        // Momentum MACD : confirme ou nuance la dynamique.
+        val macd = if (closes.size > 26) Indicators.macd(closes).macd.lastOrNull { it != null } else null
+        if (macd != null) {
+            if (macd > 0) { score += 0.1; reasons += "MACD positif (dynamique favorable)" }
+            else { score -= 0.1; reasons += "MACD négatif (dynamique faible)" }
+        }
+
+        // Risque (volatilité) : pénalise légèrement les valeurs très volatiles.
+        val risk = Analyzer.riskFrom(Analyzer.annualVolatilityPct(closes))
+        if (risk == RiskLevel.HIGH) { score -= 0.1; reasons += "Volatilité élevée (risque accru)" }
+
         score = score.coerceIn(-1.0, 1.0)
 
         val stance = when {
@@ -129,7 +142,7 @@ object StanceEvaluator {
             score <= -0.4 -> Stance.AVOID
             else -> Stance.NEUTRAL
         }
-        return Opportunity(ticker, stance, score, reasons, last.close, last.date)
+        return Opportunity(ticker, stance, score, reasons, last.close, last.date, risk)
     }
 
     private fun fmt(v: Double): String = ((v * 10).toInt() / 10.0).toString()

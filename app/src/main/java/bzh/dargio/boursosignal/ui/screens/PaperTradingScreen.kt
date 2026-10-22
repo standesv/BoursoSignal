@@ -54,10 +54,13 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
     val trades by paper.observeTrades().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
 
+    // Rafraîchit les cours des positions à l'ouverture (la variation bougera à la prochaine séance).
     val prices by produceState(initialValue = emptyMap<String, Double>(), positions) {
         val map = mutableMapOf<String, Double>()
         positions.forEach { p ->
-            container.marketRepository.cachedCandles(p.ticker).lastOrNull()?.let { map[p.ticker] = it.close }
+            val fresh = container.marketRepository.refresh(p.ticker).getOrNull()?.lastOrNull()?.close
+                ?: container.marketRepository.cachedCandles(p.ticker).lastOrNull()?.close
+            if (fresh != null) map[p.ticker] = fresh
         }
         value = map
     }
@@ -104,23 +107,17 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
 
             Text("Positions fictives", fontWeight = FontWeight.SemiBold)
             if (positions.isEmpty()) {
-                Text("Aucune position ouverte. Achète depuis la fiche d'une valeur, ou laisse le mode auto agir.",
-                    style = MaterialTheme.typography.bodySmall)
-            } else {
-                positions.forEach { p -> PositionRow(p, prices[p.ticker]) }
-            }
+                Text("Aucune position ouverte. Achète depuis la fiche d'une valeur, ou laisse le mode auto agir.", style = MaterialTheme.typography.bodySmall)
+            } else positions.forEach { p -> PositionRow(p, prices[p.ticker]) }
 
             Text("Journal des opérations fictives", fontWeight = FontWeight.SemiBold)
             if (trades.isEmpty()) {
                 Text("Aucune opération simulée pour l'instant.", style = MaterialTheme.typography.bodySmall)
-            } else {
-                trades.forEach { t ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("${if (t.type == "BUY") "▲ Achat" else "▼ Vente"} ${"%.0f".format(t.quantity)} ${t.ticker} · ${"%.2f".format(t.price)} € · ${t.date}",
-                                fontWeight = FontWeight.Medium)
-                            if (t.reason.isNotBlank()) Text(t.reason, style = MaterialTheme.typography.bodySmall)
-                        }
+            } else trades.forEach { t ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("${if (t.type == "BUY") "▲ Achat" else "▼ Vente"} ${"%.0f".format(t.quantity)} ${t.ticker} · ${"%.2f".format(t.price)} € · ${t.date}", fontWeight = FontWeight.Medium)
+                        if (t.reason.isNotBlank()) Text(t.reason, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -131,8 +128,9 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
                 Button(onClick = { scope.launch { paper.reset(acc.initialCapital) } }, modifier = Modifier.weight(1f)) { Text("Réinitialiser") }
             }
             Text(
-                "Mode automatique : à chaque signal, l'app passe un ordre fictif (nombre entier d'actions). " +
-                    "Tu peux aussi acheter/vendre à la main depuis la fiche d'une valeur. Aucun argent réel, aucun lien avec Boursorama.",
+                "La variation des positions évolue d'une séance à l'autre (données journalières). " +
+                    "Mode auto : ordres fictifs en nombre entier d'actions. Achat/vente manuels depuis la fiche d'une valeur. " +
+                    "Aucun argent réel, aucun lien avec Boursorama.",
                 style = MaterialTheme.typography.labelSmall,
             )
         }
@@ -177,16 +175,12 @@ private fun InactiveState(existing: PaperAccountEntity?, onActivate: (Double) ->
         style = MaterialTheme.typography.bodyMedium,
     )
     OutlinedTextField(
-        value = capital,
-        onValueChange = { capital = it.filter { c -> c.isDigit() } },
+        value = capital, onValueChange = { capital = it.filter { c -> c.isDigit() } },
         label = { Text("Capital de départ (€)") },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(),
     )
     Button(onClick = { onActivate(capital.toDoubleOrNull()?.coerceAtLeast(100.0) ?: 10_000.0) }, modifier = Modifier.fillMaxWidth()) {
         Text(if (existing == null) "Activer le mode test" else "Réactiver (remet à zéro)")
     }
-    if (existing != null) {
-        Text("Un portefeuille test existe (désactivé). Le réactiver repart d'un capital neuf.", style = MaterialTheme.typography.bodySmall)
-    }
+    if (existing != null) Text("Un portefeuille test existe (désactivé). Le réactiver repart d'un capital neuf.", style = MaterialTheme.typography.bodySmall)
 }
