@@ -12,7 +12,8 @@ import java.time.LocalDate
 
 /**
  * Portefeuille fictif (mode test / paper trading). Persiste l'état et applique
- * les signaux au portefeuille virtuel via [PaperBroker] (logique pure testée).
+ * les ordres au portefeuille virtuel via [PaperBroker] (logique pure testée).
+ * Deux voies : automatique (sur signal) et manuelle (achat/vente depuis l'app).
  */
 class PaperRepository(private val dao: PaperDao) {
 
@@ -46,14 +47,22 @@ class PaperRepository(private val dao: PaperDao) {
     /** Remet le portefeuille fictif à zéro avec un nouveau capital. */
     suspend fun reset(initialCapital: Double) = activate(initialCapital)
 
-    /**
-     * Applique un signal au portefeuille fictif (mode automatique) : achat d'une
-     * tranche de liquidités sur BUY, liquidation sur SELL. Sans effet si le mode
-     * test est désactivé.
-     */
+    /** Applique un signal (mode automatique). Sans effet si le mode test est désactivé. */
     suspend fun applySignal(ticker: String, type: String, price: Double, date: String, reason: String) {
-        val accEntity = dao.account() ?: return
-        if (!accEntity.enabled) return
+        execute(ticker, type, price, date, reason)
+    }
+
+    /** Achat manuel depuis l'app (demande utilisateur). Renvoie vrai si exécuté. */
+    suspend fun manualBuy(ticker: String, price: Double): Boolean =
+        execute(ticker, "BUY", price, LocalDate.now().toString(), "Achat manuel (mode test)")
+
+    /** Vente manuelle depuis l'app. Renvoie vrai si exécuté. */
+    suspend fun manualSell(ticker: String, price: Double): Boolean =
+        execute(ticker, "SELL", price, LocalDate.now().toString(), "Vente manuelle (mode test)")
+
+    private suspend fun execute(ticker: String, type: String, price: Double, date: String, reason: String): Boolean {
+        val accEntity = dao.account() ?: return false
+        if (!accEntity.enabled) return false
 
         val positions = dao.positions().associate { it.ticker to PaperHolding(it.quantity, it.avgPrice) }
         val account = PaperAccount(accEntity.initialCapital, accEntity.cash, positions)
@@ -62,9 +71,9 @@ class PaperRepository(private val dao: PaperDao) {
         val exec = when (type) {
             "BUY" -> PaperBroker.buy(account, ticker, price, budget)
             "SELL" -> PaperBroker.sell(account, ticker, price)
-            else -> return
+            else -> return false
         }
-        if (!exec.executed) return
+        if (!exec.executed) return false
 
         dao.upsertAccount(accEntity.copy(cash = exec.account.cash))
         if (type == "BUY") {
@@ -76,6 +85,7 @@ class PaperRepository(private val dao: PaperDao) {
         dao.insertTrade(
             PaperTradeEntity(ticker = ticker, type = type, quantity = exec.executedQty, price = price, date = date, reason = reason)
         )
+        return true
     }
 
     private companion object {

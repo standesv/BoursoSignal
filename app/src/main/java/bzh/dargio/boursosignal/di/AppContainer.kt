@@ -3,6 +3,7 @@ package bzh.dargio.boursosignal.di
 import android.content.Context
 import bzh.dargio.boursosignal.data.local.AppDatabase
 import bzh.dargio.boursosignal.data.prefs.SettingsStore
+import bzh.dargio.boursosignal.data.remote.NewsProvider
 import bzh.dargio.boursosignal.data.repo.MarketRepository
 import bzh.dargio.boursosignal.data.repo.PaperRepository
 import bzh.dargio.boursosignal.data.repo.PortfolioRepository
@@ -32,6 +33,7 @@ class AppContainer(context: Context) {
     val strategyRepository = StrategyRepository(db.strategyDao())
     val paperRepository = PaperRepository(db.paperDao())
     val universeProvider = UniverseProvider(context)
+    val newsProvider = NewsProvider()
 
     val signalRefresher = SignalRefresher(
         watchlist = watchlistRepository,

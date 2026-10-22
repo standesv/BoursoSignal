@@ -35,6 +35,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
+import bzh.dargio.boursosignal.domain.signals.BuyRationale
+import bzh.dargio.boursosignal.domain.signals.NewsSentiment
 import bzh.dargio.boursosignal.domain.signals.Opportunity
 import bzh.dargio.boursosignal.domain.signals.Stance
 import bzh.dargio.boursosignal.ui.theme.BearRed
@@ -53,7 +55,6 @@ fun DashboardScreen(
     val scanning by scanner.scanning.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Lance un premier scan à l'ouverture si le classement est vide.
     LaunchedEffect(Unit) {
         if (opportunities.isEmpty() && !scanning) scanner.scan()
     }
@@ -72,9 +73,7 @@ fun DashboardScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (scanning) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-            Card(
-                Modifier.fillMaxWidth().padding(12.dp).clickable { onPaper() },
-            ) {
+            Card(Modifier.fillMaxWidth().padding(12.dp).clickable { onPaper() }) {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -116,14 +115,17 @@ fun DashboardScreen(
 @Composable
 private fun OpportunityCard(opp: Opportunity, name: String, onClick: () -> Unit) {
     val (label, color) = stanceLabel(opp.stance)
+    // Signaux verts (Achat) et à surveiller : une phrase "pourquoi".
+    val explanation = if (opp.stance == Stance.BUY || opp.stance == Stance.WATCH)
+        BuyRationale.whyBuy(name, opp, NewsSentiment.NEUTRAL)
+    else opp.reasons.firstOrNull() ?: ""
+
     Card(Modifier.fillMaxWidth().clickable { onClick() }) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(name, fontWeight = FontWeight.SemiBold)
                 Text(opp.ticker, style = MaterialTheme.typography.labelSmall)
-                opp.reasons.firstOrNull()?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall)
-                }
+                if (explanation.isNotBlank()) Text(explanation, style = MaterialTheme.typography.bodySmall)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(label, color = color, fontWeight = FontWeight.Bold)
