@@ -38,7 +38,6 @@ fun SettingsScreen(container: AppContainer) {
     val settings = container.settings
     val context = LocalContext.current
 
-    var demo by remember { mutableStateOf(settings.useDemoProvider) }
     var interval by remember { mutableStateOf(settings.refreshIntervalHours.toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled) }
     var saved by remember { mutableStateOf(false) }
@@ -49,15 +48,7 @@ fun SettingsScreen(container: AppContainer) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Source de cours", fontWeight = FontWeight.SemiBold)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Mode démo (hors-ligne, sans clé)")
-                Switch(checked = demo, onCheckedChange = { demo = it })
-            }
-            Text(
-                if (demo) "Cours synthétiques générés localement, sans réseau."
-                else "Données réelles via Yahoo Finance (gratuit, couvre Euronext Paris — ex. AIR.PA). Aucune clé requise.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Text("Yahoo Finance (gratuit, couvre Euronext Paris). Aucune clé requise.", style = MaterialTheme.typography.bodyMedium)
 
             HorizontalDivider()
             Text("Rafraîchissement", fontWeight = FontWeight.SemiBold)
@@ -75,7 +66,6 @@ fun SettingsScreen(container: AppContainer) {
 
             Button(
                 onClick = {
-                    settings.useDemoProvider = demo
                     settings.refreshIntervalHours = interval.toIntOrNull()?.coerceIn(1, 168) ?: 12
                     settings.notificationsEnabled = notifications
                     RefreshWorker.schedule(context, settings.refreshIntervalHours)

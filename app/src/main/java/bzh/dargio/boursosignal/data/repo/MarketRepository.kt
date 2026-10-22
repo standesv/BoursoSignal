@@ -4,7 +4,6 @@ import bzh.dargio.boursosignal.data.local.CandleDao
 import bzh.dargio.boursosignal.data.local.CandleEntity
 import bzh.dargio.boursosignal.data.local.toDomain
 import bzh.dargio.boursosignal.data.prefs.SettingsStore
-import bzh.dargio.boursosignal.data.remote.FakeMarketDataProvider
 import bzh.dargio.boursosignal.data.remote.MarketDataProvider
 import bzh.dargio.boursosignal.data.remote.YahooFinanceProvider
 import bzh.dargio.boursosignal.domain.signals.Candle
@@ -12,35 +11,30 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /**
- * Accès aux cours : choisit la source selon les réglages, récupère l'historique
- * et le met en cache local (§6, §13 mode hors-ligne).
- *
- * Source réelle par défaut : Yahoo Finance (gratuit, couvre Euronext Paris).
- * Twelve Data reste disponible dans le code pour qui dispose d'un plan payant.
+ * Accès aux cours via Yahoo Finance (gratuit, couvre Euronext Paris), avec mise
+ * en cache locale (§6, §13 mode hors-ligne).
  */
 class MarketRepository(
     private val candleDao: CandleDao,
-    private val settings: SettingsStore,
+    @Suppress("unused") private val settings: SettingsStore,
 ) {
 
-    /** Fournisseur courant, reconstruit à chaque appel selon les réglages. */
-    fun currentProvider(): MarketDataProvider =
-        if (settings.useDemoProvider) FakeMarketDataProvider() else YahooFinanceProvider()
+    private val provider: MarketDataProvider = YahooFinanceProvider()
 
-    /** Bougies en cache pour une valeur (flux réactif). */
+    fun currentProvider(): MarketDataProvider = provider
+
     fun observeCandles(ticker: String): Flow<List<Candle>> =
         candleDao.observeForTicker(ticker).map { it.toDomain() }
 
-    /** Bougies en cache (lecture ponctuelle). */
     suspend fun cachedCandles(ticker: String): List<Candle> =
         candleDao.forTicker(ticker).toDomain()
 
     /**
-     * Rafraîchit l'historique d'une valeur depuis la source et le stocke.
+     * Rafraîchit l'historique d'une valeur depuis Yahoo et le stocke.
      * En cas d'échec réseau, renvoie le cache existant (dégradation gracieuse §13).
      */
     suspend fun refresh(ticker: String, outputSize: Int = 250): Result<List<Candle>> {
-        val result = currentProvider().dailyCandles(ticker, outputSize)
+        val result = provider.dailyCandles(ticker, outputSize)
         result.onSuccess { candles ->
             candleDao.upsertAll(candles.map {
                 CandleEntity(ticker, it.date, it.open, it.high, it.low, it.close, it.volume)

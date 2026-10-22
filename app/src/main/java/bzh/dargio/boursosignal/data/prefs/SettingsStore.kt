@@ -6,9 +6,11 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 /**
- * Réglages et secrets de l'application, stockés de façon chiffrée via
- * EncryptedSharedPreferences + Android Keystore (§11). La clé API de la source de
- * cours ne quitte jamais l'appareil.
+ * Réglages de l'application, stockés de façon chiffrée via
+ * EncryptedSharedPreferences + Android Keystore (§11).
+ *
+ * La source de cours est Yahoo Finance (gratuit, couvre Euronext Paris) ; il n'y
+ * a plus de mode démo ni de clé API à gérer.
  */
 class SettingsStore(context: Context) {
 
@@ -25,16 +27,7 @@ class SettingsStore(context: Context) {
         )
     }
 
-    var apiKey: String?
-        get() = prefs.getString(KEY_API, null)?.takeIf { it.isNotBlank() }
-        set(value) = prefs.edit().putString(KEY_API, value).apply()
-
-    /** Mode démo (source de cours synthétique, sans clé ni réseau). */
-    var useDemoProvider: Boolean
-        get() = prefs.getBoolean(KEY_DEMO, apiKey == null)
-        set(value) = prefs.edit().putBoolean(KEY_DEMO, value).apply()
-
-    /** Fréquence de rafraîchissement en arrière-plan, en heures (défaut : fin de séance). */
+    /** Fréquence de rafraîchissement en arrière-plan, en heures. */
     var refreshIntervalHours: Int
         get() = prefs.getInt(KEY_INTERVAL, 12)
         set(value) = prefs.edit().putInt(KEY_INTERVAL, value).apply()
@@ -45,8 +38,6 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_NOTIF, value).apply()
 
     private companion object {
-        const val KEY_API = "api_key"
-        const val KEY_DEMO = "use_demo"
         const val KEY_INTERVAL = "refresh_interval_hours"
         const val KEY_NOTIF = "notifications_enabled"
     }
