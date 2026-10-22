@@ -1,0 +1,21 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild
+.cxx/
+local.properties
+
+# Spécifique au projet de vérification du moteur
+engine-verify/out/
+engine-verify/build/
+engine-verify/.gradle/
+
+# Signature release (ne jamais committer de keystore ni de mots de passe)
+keystore.properties
+*.jks
+*.keystore
+*.p12
