@@ -6,6 +6,7 @@ import bzh.dargio.boursosignal.data.local.PaperPositionEntity
 import bzh.dargio.boursosignal.data.local.PaperTradeEntity
 import bzh.dargio.boursosignal.domain.signals.PaperAccount
 import bzh.dargio.boursosignal.domain.signals.PaperBroker
+import bzh.dargio.boursosignal.domain.signals.PaperExecution
 import bzh.dargio.boursosignal.domain.signals.PaperHolding
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
@@ -13,7 +14,7 @@ import java.time.LocalDate
 /**
  * Portefeuille fictif (mode test / paper trading). Persiste l'état et applique
  * les ordres au portefeuille virtuel via [PaperBroker] (logique pure testée).
- * Deux voies : automatique (sur signal) et manuelle (achat/vente depuis l'app).
+ * Ordres en nombre entier d'actions ; voies automatique (sur signal) et manuelle.
  */
 class PaperRepository(private val dao: PaperDao) {
 
@@ -23,73 +24,82 @@ class PaperRepository(private val dao: PaperDao) {
 
     suspend fun isEnabled(): Boolean = dao.account()?.enabled == true
 
-    /** Active le mode test avec un capital de départ, en repartant de zéro. */
     suspend fun activate(initialCapital: Double) {
         dao.clearPositions()
         dao.clearTrades()
         dao.upsertAccount(
             PaperAccountEntity(
-                id = 0,
-                enabled = true,
-                initialCapital = initialCapital,
-                cash = initialCapital,
-                startDate = LocalDate.now().toString(),
+                id = 0, enabled = true, initialCapital = initialCapital,
+                cash = initialCapital, startDate = LocalDate.now().toString(),
             )
         )
     }
 
-    /** Désactive le mode test (conserve l'historique). */
     suspend fun setEnabled(enabled: Boolean) {
         val acc = dao.account() ?: return
         dao.upsertAccount(acc.copy(enabled = enabled))
     }
 
-    /** Remet le portefeuille fictif à zéro avec un nouveau capital. */
     suspend fun reset(initialCapital: Double) = activate(initialCapital)
 
-    /** Applique un signal (mode automatique). Sans effet si le mode test est désactivé. */
+    /** Mode automatique : une position par valeur, tranche fixe du capital. */
     suspend fun applySignal(ticker: String, type: String, price: Double, date: String, reason: String) {
-        execute(ticker, type, price, date, reason)
+        val loaded = load() ?: return
+        val (acc, account) = loaded
+        if (!acc.enabled) return
+        val exec = when (type) {
+            "BUY" -> if (account.positions.containsKey(ticker)) return
+            else PaperBroker.buyBudget(account, ticker, price, acc.initialCapital * BUY_FRACTION)
+            "SELL" -> PaperBroker.sellAll(account, ticker, price)
+            else -> return
+        }
+        persist(acc, exec, ticker, type, date, reason)
     }
 
-    /** Achat manuel depuis l'app (demande utilisateur). Renvoie vrai si exécuté. */
-    suspend fun manualBuy(ticker: String, price: Double): Boolean =
-        execute(ticker, "BUY", price, LocalDate.now().toString(), "Achat manuel (mode test)")
+    /** Achat manuel d'un nombre d'actions. Renvoie le nombre réellement acheté. */
+    suspend fun buyShares(ticker: String, price: Double, shares: Int): Int = manual("BUY", ticker, "Achat manuel (mode test)") { account ->
+        PaperBroker.buyShares(account, ticker, price, shares)
+    }
 
-    /** Vente manuelle depuis l'app. Renvoie vrai si exécuté. */
-    suspend fun manualSell(ticker: String, price: Double): Boolean =
-        execute(ticker, "SELL", price, LocalDate.now().toString(), "Vente manuelle (mode test)")
+    /** Achat manuel pour un montant (converti en actions entières). */
+    suspend fun buyAmount(ticker: String, price: Double, amount: Double): Int = manual("BUY", ticker, "Achat manuel (mode test)") { account ->
+        PaperBroker.buyBudget(account, ticker, price, amount)
+    }
 
-    private suspend fun execute(ticker: String, type: String, price: Double, date: String, reason: String): Boolean {
-        val accEntity = dao.account() ?: return false
-        if (!accEntity.enabled) return false
+    /** Vente manuelle d'un nombre d'actions. */
+    suspend fun sellShares(ticker: String, price: Double, shares: Int): Int = manual("SELL", ticker, "Vente manuelle (mode test)") { account ->
+        PaperBroker.sellShares(account, ticker, price, shares)
+    }
 
+    /** Vente totale de la position. */
+    suspend fun sellAll(ticker: String, price: Double): Int = manual("SELL", ticker, "Vente manuelle (mode test)") { account ->
+        PaperBroker.sellAll(account, ticker, price)
+    }
+
+    private suspend fun manual(type: String, ticker: String, reason: String, op: (PaperAccount) -> PaperExecution): Int {
+        val loaded = load() ?: return 0
+        val (acc, account) = loaded
+        if (!acc.enabled) return 0
+        return persist(acc, op(account), ticker, type, LocalDate.now().toString(), reason)
+    }
+
+    private suspend fun load(): Pair<PaperAccountEntity, PaperAccount>? {
+        val acc = dao.account() ?: return null
         val positions = dao.positions().associate { it.ticker to PaperHolding(it.quantity, it.avgPrice) }
-        val account = PaperAccount(accEntity.initialCapital, accEntity.cash, positions)
-        val budget = accEntity.initialCapital * BUY_FRACTION
+        return acc to PaperAccount(acc.initialCapital, acc.cash, positions)
+    }
 
-        val exec = when (type) {
-            "BUY" -> PaperBroker.buy(account, ticker, price, budget)
-            "SELL" -> PaperBroker.sell(account, ticker, price)
-            else -> return false
-        }
-        if (!exec.executed) return false
-
-        dao.upsertAccount(accEntity.copy(cash = exec.account.cash))
-        if (type == "BUY") {
-            val h = exec.account.positions.getValue(ticker)
-            dao.upsertPosition(PaperPositionEntity(ticker, h.quantity, h.avgPrice, date))
-        } else {
-            dao.deletePosition(ticker)
-        }
-        dao.insertTrade(
-            PaperTradeEntity(ticker = ticker, type = type, quantity = exec.executedQty, price = price, date = date, reason = reason)
-        )
-        return true
+    private suspend fun persist(acc: PaperAccountEntity, exec: PaperExecution, ticker: String, type: String, date: String, reason: String): Int {
+        if (!exec.executed) return 0
+        dao.upsertAccount(acc.copy(cash = exec.account.cash))
+        val h = exec.account.positions[ticker]
+        if (h != null) dao.upsertPosition(PaperPositionEntity(ticker, h.quantity, h.avgPrice, date))
+        else dao.deletePosition(ticker)
+        dao.insertTrade(PaperTradeEntity(ticker = ticker, type = type, quantity = exec.executedQty, price = exec.price, date = date, reason = reason))
+        return exec.executedQty.toInt()
     }
 
     private companion object {
-        /** Fraction du capital initial investie à chaque achat (≈ 5 positions max). */
         const val BUY_FRACTION = 0.2
     }
 }

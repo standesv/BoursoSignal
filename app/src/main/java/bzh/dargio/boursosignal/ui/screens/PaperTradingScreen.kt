@@ -32,13 +32,14 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.data.local.PaperAccountEntity
+import bzh.dargio.boursosignal.data.local.PaperPositionEntity
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
@@ -65,9 +66,7 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Portefeuille test") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") }
-                },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour") } },
             )
         },
     ) { padding ->
@@ -77,57 +76,38 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (acc == null || !acc.enabled) {
-                InactiveState(
-                    existing = acc,
-                    onActivate = { capital -> scope.launch { paper.activate(capital) } },
-                )
+                InactiveState(existing = acc, onActivate = { capital -> scope.launch { paper.activate(capital) } })
                 return@Column
             }
 
-            val equity = acc.cash + positions.sumOf { it.quantity * (prices[it.ticker] ?: it.avgPrice) }
+            val invested = positions.sumOf { it.quantity * (prices[it.ticker] ?: it.avgPrice) }
+            val equity = acc.cash + invested
             val returnPct = if (acc.initialCapital > 0) (equity - acc.initialCapital) / acc.initialCapital * 100 else 0.0
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(
-                    onClick = {},
-                    label = { Text("TEST") },
-                    colors = AssistChipDefaults.assistChipColors(labelColor = BullGreen),
-                )
+                AssistChip(onClick = {}, label = { Text("TEST") }, colors = AssistChipDefaults.assistChipColors(labelColor = BullGreen))
                 Text("Depuis le ${acc.startDate}", style = MaterialTheme.typography.bodySmall)
             }
 
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Valeur du portefeuille fictif", style = MaterialTheme.typography.labelMedium)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Valeur totale", style = MaterialTheme.typography.labelMedium)
                     Text("%.2f €".format(equity), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "%+.2f € (%+.1f %%) vs capital de départ".format(equity - acc.initialCapital, returnPct),
-                        color = if (returnPct >= 0) BullGreen else BearRed,
-                    )
-                    Text("Liquidités : %.2f € · Capital initial : %.0f €".format(acc.cash, acc.initialCapital),
-                        style = MaterialTheme.typography.bodySmall)
+                    Text("%+.2f € (%+.1f %%) vs capital de départ".format(equity - acc.initialCapital, returnPct),
+                        color = if (returnPct >= 0) BullGreen else BearRed)
+                    HorizontalDivider()
+                    LineItem("Solde disponible (liquidités)", "%.2f €".format(acc.cash))
+                    LineItem("Investi (valeur des positions)", "%.2f €".format(invested))
+                    LineItem("Capital initial", "%.0f €".format(acc.initialCapital))
                 }
             }
 
             Text("Positions fictives", fontWeight = FontWeight.SemiBold)
             if (positions.isEmpty()) {
-                Text("Aucune position ouverte. Les achats se feront automatiquement aux prochains signaux.",
+                Text("Aucune position ouverte. Achète depuis la fiche d'une valeur, ou laisse le mode auto agir.",
                     style = MaterialTheme.typography.bodySmall)
             } else {
-                positions.forEach { p ->
-                    val cur = prices[p.ticker] ?: p.avgPrice
-                    val plPct = if (p.avgPrice > 0) (cur - p.avgPrice) / p.avgPrice * 100 else 0.0
-                    Card(Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column {
-                                Text(p.ticker, fontWeight = FontWeight.SemiBold)
-                                Text("Qté ${"%.2f".format(p.quantity)} · PRU ${"%.2f €".format(p.avgPrice)}",
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text("%+.1f %%".format(plPct), color = if (plPct >= 0) BullGreen else BearRed)
-                        }
-                    }
-                }
+                positions.forEach { p -> PositionRow(p, prices[p.ticker]) }
             }
 
             Text("Journal des opérations fictives", fontWeight = FontWeight.SemiBold)
@@ -137,7 +117,7 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
                 trades.forEach { t ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("${if (t.type == "BUY") "▲ Achat" else "▼ Vente"} ${t.ticker} · ${"%.2f".format(t.price)} € · ${t.date}",
+                            Text("${if (t.type == "BUY") "▲ Achat" else "▼ Vente"} ${"%.0f".format(t.quantity)} ${t.ticker} · ${"%.2f".format(t.price)} € · ${t.date}",
                                 fontWeight = FontWeight.Medium)
                             if (t.reason.isNotBlank()) Text(t.reason, style = MaterialTheme.typography.bodySmall)
                         }
@@ -147,18 +127,41 @@ fun PaperTradingScreen(container: AppContainer, onBack: () -> Unit) {
 
             HorizontalDivider()
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { scope.launch { paper.setEnabled(false) } }, modifier = Modifier.weight(1f)) {
-                    Text("Désactiver")
-                }
-                Button(onClick = { scope.launch { paper.reset(acc.initialCapital) } }, modifier = Modifier.weight(1f)) {
-                    Text("Réinitialiser")
-                }
+                OutlinedButton(onClick = { scope.launch { paper.setEnabled(false) } }, modifier = Modifier.weight(1f)) { Text("Désactiver") }
+                Button(onClick = { scope.launch { paper.reset(acc.initialCapital) } }, modifier = Modifier.weight(1f)) { Text("Réinitialiser") }
             }
             Text(
-                "Mode automatique : à chaque signal, l'app passe un ordre fictif (achat d'environ 20 % du " +
-                    "capital par valeur, vente à la liquidation). Aucun argent réel, aucun lien avec Boursorama.",
+                "Mode automatique : à chaque signal, l'app passe un ordre fictif (nombre entier d'actions). " +
+                    "Tu peux aussi acheter/vendre à la main depuis la fiche d'une valeur. Aucun argent réel, aucun lien avec Boursorama.",
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun LineItem(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(value, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun PositionRow(p: PaperPositionEntity, current: Double?) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text(p.ticker, fontWeight = FontWeight.SemiBold)
+                Text("Qté ${"%.0f".format(p.quantity)} · PRU ${"%.2f €".format(p.avgPrice)}", style = MaterialTheme.typography.bodySmall)
+            }
+            if (current != null) {
+                val plPct = if (p.avgPrice > 0) (current - p.avgPrice) / p.avgPrice * 100 else 0.0
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("%.2f €".format(current))
+                    Text("%+.1f %%".format(plPct), color = if (plPct >= 0) BullGreen else BearRed)
+                }
+            }
         }
     }
 }
@@ -170,7 +173,7 @@ private fun InactiveState(existing: PaperAccountEntity?, onActivate: (Double) ->
     Text("Mode test (portefeuille fictif)", fontWeight = FontWeight.SemiBold)
     Text(
         "Teste l'efficacité des signaux avec de l'argent fictif : l'app suit automatiquement ses propres " +
-            "recommandations et mesure la performance, sans aucun risque.",
+            "recommandations, et tu peux aussi acheter/vendre à la main. Sans aucun risque.",
         style = MaterialTheme.typography.bodyMedium,
     )
     OutlinedTextField(
@@ -180,12 +183,10 @@ private fun InactiveState(existing: PaperAccountEntity?, onActivate: (Double) ->
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
     )
-    Button(
-        onClick = { onActivate(capital.toDoubleOrNull()?.coerceAtLeast(100.0) ?: 10_000.0) },
-        modifier = Modifier.fillMaxWidth(),
-    ) { Text(if (existing == null) "Activer le mode test" else "Réactiver (remet à zéro)") }
+    Button(onClick = { onActivate(capital.toDoubleOrNull()?.coerceAtLeast(100.0) ?: 10_000.0) }, modifier = Modifier.fillMaxWidth()) {
+        Text(if (existing == null) "Activer le mode test" else "Réactiver (remet à zéro)")
+    }
     if (existing != null) {
-        Text("Un portefeuille test existe (désactivé). Le réactiver repart d'un capital neuf.",
-            style = MaterialTheme.typography.bodySmall)
+        Text("Un portefeuille test existe (désactivé). Le réactiver repart d'un capital neuf.", style = MaterialTheme.typography.bodySmall)
     }
 }
