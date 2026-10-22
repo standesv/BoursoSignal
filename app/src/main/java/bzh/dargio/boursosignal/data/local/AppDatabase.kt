@@ -15,8 +15,11 @@ import bzh.dargio.boursosignal.domain.signals.StrategyConfig
         TransactionEntity::class,
         SignalEntity::class,
         StrategyEntity::class,
+        PaperAccountEntity::class,
+        PaperPositionEntity::class,
+        PaperTradeEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun portfolioDao(): PortfolioDao
     abstract fun signalDao(): SignalDao
     abstract fun strategyDao(): StrategyDao
+    abstract fun paperDao(): PaperDao
 
     companion object {
         /**

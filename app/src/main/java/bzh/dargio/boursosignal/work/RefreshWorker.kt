@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Tâche de fond (§10, §13) : rafraîchit les cours de la watchlist, évalue les
- * stratégies et notifie les nouveaux signaux. S'exécute même application fermée.
+ * stratégies, notifie les nouveaux signaux et, si le mode test est actif, les
+ * applique au portefeuille fictif. S'exécute même application fermée.
  */
 class RefreshWorker(
     appContext: Context,
@@ -37,6 +38,8 @@ class RefreshWorker(
                     )
                 }
             }
+            // Mode test : applique les signaux au portefeuille fictif (sans effet si désactivé).
+            container.paperTradingService.apply(emitted)
             Result.success()
         } catch (t: Throwable) {
             Result.retry()

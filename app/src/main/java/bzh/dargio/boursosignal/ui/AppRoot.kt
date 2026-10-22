@@ -27,6 +27,7 @@ import bzh.dargio.boursosignal.ui.screens.AlertsScreen
 import bzh.dargio.boursosignal.ui.screens.BacktestScreen
 import bzh.dargio.boursosignal.ui.screens.DashboardScreen
 import bzh.dargio.boursosignal.ui.screens.InstrumentDetailScreen
+import bzh.dargio.boursosignal.ui.screens.PaperTradingScreen
 import bzh.dargio.boursosignal.ui.screens.PortfolioScreen
 import bzh.dargio.boursosignal.ui.screens.SettingsScreen
 import bzh.dargio.boursosignal.ui.screens.WatchlistScreen
@@ -75,7 +76,11 @@ fun AppRoot(container: AppContainer) {
             modifier = Modifier.padding(padding),
         ) {
             composable(Dest.Dashboard.route) {
-                DashboardScreen(container, onOpen = { navController.navigate("detail/$it") })
+                DashboardScreen(
+                    container = container,
+                    onOpen = { navController.navigate("detail/$it") },
+                    onPaper = { navController.navigate("paper") },
+                )
             }
             composable(Dest.Watchlist.route) {
                 WatchlistScreen(container, onOpen = { navController.navigate("detail/$it") })
@@ -97,6 +102,9 @@ fun AppRoot(container: AppContainer) {
             composable("backtest/{ticker}") { entry ->
                 val ticker = entry.arguments?.getString("ticker").orEmpty()
                 BacktestScreen(container, ticker, onBack = { navController.popBackStack() })
+            }
+            composable("paper") {
+                PaperTradingScreen(container, onBack = { navController.popBackStack() })
             }
         }
     }
