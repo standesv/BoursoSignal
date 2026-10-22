@@ -4,6 +4,7 @@ import bzh.dargio.boursosignal.data.local.PaperAccountEntity
 import bzh.dargio.boursosignal.data.local.PaperDao
 import bzh.dargio.boursosignal.data.local.PaperPositionEntity
 import bzh.dargio.boursosignal.data.local.PaperTradeEntity
+import bzh.dargio.boursosignal.domain.signals.FeeProfile
 import bzh.dargio.boursosignal.domain.signals.PaperAccount
 import bzh.dargio.boursosignal.domain.signals.PaperBroker
 import bzh.dargio.boursosignal.domain.signals.PaperExecution
@@ -15,8 +16,14 @@ import java.time.LocalDate
  * Portefeuille fictif (mode test / paper trading). Persiste l'état et applique
  * les ordres au portefeuille virtuel via [PaperBroker] (logique pure testée).
  * Ordres en nombre entier d'actions ; voies automatique (sur signal) et manuelle.
+ *
+ * Les frais de courtage simulés proviennent du profil actif ([activeFee]),
+ * configuré dans les Réglages. Ils sont prélevés par le broker et journalisés.
  */
-class PaperRepository(private val dao: PaperDao) {
+class PaperRepository(
+    private val dao: PaperDao,
+    private val activeFee: () -> FeeProfile = { FeeProfile.NONE },
+) {
 
     fun observeAccount(): Flow<PaperAccountEntity?> = dao.observeAccount()
     fun observePositions(): Flow<List<PaperPositionEntity>> = dao.observePositions()
@@ -36,7 +43,12 @@ class PaperRepository(private val dao: PaperDao) {
     }
 
     suspend fun setEnabled(enabled: Boolean) {
-        val acc = dao.account() ?: return
+        val acc = dao.account()
+        if (acc == null) {
+            // Première activation sans compte existant : crée un portefeuille neuf.
+            if (enabled) activate(10_000.0)
+            return
+        }
         dao.upsertAccount(acc.copy(enabled = enabled))
     }
 
@@ -47,10 +59,11 @@ class PaperRepository(private val dao: PaperDao) {
         val loaded = load() ?: return
         val (acc, account) = loaded
         if (!acc.enabled) return
+        val fee = activeFee()
         val exec = when (type) {
             "BUY" -> if (account.positions.containsKey(ticker)) return
-            else PaperBroker.buyBudget(account, ticker, price, acc.initialCapital * BUY_FRACTION)
-            "SELL" -> PaperBroker.sellAll(account, ticker, price)
+            else PaperBroker.buyBudget(account, ticker, price, acc.initialCapital * BUY_FRACTION, fee)
+            "SELL" -> PaperBroker.sellAll(account, ticker, price, fee)
             else -> return
         }
         persist(acc, exec, ticker, type, date, reason)
@@ -58,22 +71,22 @@ class PaperRepository(private val dao: PaperDao) {
 
     /** Achat manuel d'un nombre d'actions. Renvoie le nombre réellement acheté. */
     suspend fun buyShares(ticker: String, price: Double, shares: Int): Int = manual("BUY", ticker, "Achat manuel (mode test)") { account ->
-        PaperBroker.buyShares(account, ticker, price, shares)
+        PaperBroker.buyShares(account, ticker, price, shares, activeFee())
     }
 
     /** Achat manuel pour un montant (converti en actions entières). */
     suspend fun buyAmount(ticker: String, price: Double, amount: Double): Int = manual("BUY", ticker, "Achat manuel (mode test)") { account ->
-        PaperBroker.buyBudget(account, ticker, price, amount)
+        PaperBroker.buyBudget(account, ticker, price, amount, activeFee())
     }
 
     /** Vente manuelle d'un nombre d'actions. */
     suspend fun sellShares(ticker: String, price: Double, shares: Int): Int = manual("SELL", ticker, "Vente manuelle (mode test)") { account ->
-        PaperBroker.sellShares(account, ticker, price, shares)
+        PaperBroker.sellShares(account, ticker, price, shares, activeFee())
     }
 
     /** Vente totale de la position. */
     suspend fun sellAll(ticker: String, price: Double): Int = manual("SELL", ticker, "Vente manuelle (mode test)") { account ->
-        PaperBroker.sellAll(account, ticker, price)
+        PaperBroker.sellAll(account, ticker, price, activeFee())
     }
 
     private suspend fun manual(type: String, ticker: String, reason: String, op: (PaperAccount) -> PaperExecution): Int {
@@ -95,7 +108,12 @@ class PaperRepository(private val dao: PaperDao) {
         val h = exec.account.positions[ticker]
         if (h != null) dao.upsertPosition(PaperPositionEntity(ticker, h.quantity, h.avgPrice, date))
         else dao.deletePosition(ticker)
-        dao.insertTrade(PaperTradeEntity(ticker = ticker, type = type, quantity = exec.executedQty, price = exec.price, date = date, reason = reason))
+        dao.insertTrade(
+            PaperTradeEntity(
+                ticker = ticker, type = type, quantity = exec.executedQty,
+                price = exec.price, date = date, reason = reason, fees = exec.fee,
+            )
+        )
         return exec.executedQty.toInt()
     }
 

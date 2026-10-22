@@ -31,7 +31,7 @@ class AppContainer(context: Context) {
     val portfolioRepository = PortfolioRepository(db.portfolioDao())
     val signalRepository = SignalRepository(db.signalDao())
     val strategyRepository = StrategyRepository(db.strategyDao())
-    val paperRepository = PaperRepository(db.paperDao())
+    val paperRepository = PaperRepository(db.paperDao()) { settings.activeFeeProfile() }
     val universeProvider = UniverseProvider(context)
     val newsProvider = NewsProvider()
 

@@ -85,8 +85,8 @@ fun DashboardScreen(
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Science, contentDescription = null)
                     Column {
-                        Text("Portefeuille test (mode auto)", fontWeight = FontWeight.SemiBold)
-                        Text("Teste les signaux avec de l'argent fictif, sans risque.", style = MaterialTheme.typography.bodySmall)
+                        Text("Portefeuille test", fontWeight = FontWeight.SemiBold)
+                        Text("Suis tes positions fictives dans l'onglet Portefeuille (section Test).", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

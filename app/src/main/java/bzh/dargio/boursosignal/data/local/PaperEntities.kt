@@ -37,5 +37,6 @@ data class PaperTradeEntity(
     val price: Double,
     val date: String,
     val reason: String,
+    val fees: Double = 0.0,  // frais de courtage simulés
     val createdAt: Long = System.currentTimeMillis(),
 )
