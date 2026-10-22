@@ -15,6 +15,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -40,7 +41,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InstrumentDetailScreen(container: AppContainer, ticker: String, onBack: () -> Unit) {
+fun InstrumentDetailScreen(
+    container: AppContainer,
+    ticker: String,
+    onBack: () -> Unit,
+    onBacktest: (String) -> Unit,
+) {
     val candles by container.marketRepository.observeCandles(ticker).collectAsState(initial = emptyList())
     val signals by container.signalRepository.observeForTicker(ticker).collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
@@ -99,6 +105,11 @@ fun InstrumentDetailScreen(container: AppContainer, ticker: String, onBack: () -
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Évaluer maintenant") }
+
+            OutlinedButton(
+                onClick = { onBacktest(ticker) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Backtester cette stratégie") }
 
             manualResult?.let { r ->
                 Card(Modifier.fillMaxWidth()) {

@@ -24,6 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.ui.screens.AlertsScreen
+import bzh.dargio.boursosignal.ui.screens.BacktestScreen
 import bzh.dargio.boursosignal.ui.screens.DashboardScreen
 import bzh.dargio.boursosignal.ui.screens.InstrumentDetailScreen
 import bzh.dargio.boursosignal.ui.screens.PortfolioScreen
@@ -86,7 +87,16 @@ fun AppRoot(container: AppContainer) {
             composable(Dest.Settings.route) { SettingsScreen(container) }
             composable("detail/{ticker}") { entry ->
                 val ticker = entry.arguments?.getString("ticker").orEmpty()
-                InstrumentDetailScreen(container, ticker, onBack = { navController.popBackStack() })
+                InstrumentDetailScreen(
+                    container = container,
+                    ticker = ticker,
+                    onBack = { navController.popBackStack() },
+                    onBacktest = { navController.navigate("backtest/$ticker") },
+                )
+            }
+            composable("backtest/{ticker}") { entry ->
+                val ticker = entry.arguments?.getString("ticker").orEmpty()
+                BacktestScreen(container, ticker, onBack = { navController.popBackStack() })
             }
         }
     }
