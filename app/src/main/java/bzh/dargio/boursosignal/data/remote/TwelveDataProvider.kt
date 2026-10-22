@@ -20,9 +20,9 @@ import retrofit2.http.Query
  * séance sur une watchlist réduite. La clé API est fournie par l'utilisateur
  * (§11) et n'est jamais codée en dur.
  *
- * Remarque sur les symboles : Twelve Data n'utilise pas le suffixe `.PA`. Le
- * ticker interne "AIR.PA" est traduit en "AIR" + exchange "Euronext" via
- * [toProviderSymbol]. À ajuster selon la couverture réelle du fournisseur.
+ * Symboles : le ticker interne "AIR.PA" est traduit en symbole "AIR" + code de
+ * place MIC "XPAR" (Euronext Paris) via [toProviderSymbol]. Le MIC est le plus
+ * fiable pour lever l'ambiguïté entre les places Euronext.
  */
 class TwelveDataProvider(
     private val apiKeyProvider: () -> String?,
@@ -46,10 +46,10 @@ class TwelveDataProvider(
             val key = apiKeyProvider()
                 ?: return@withContext Result.failure(MissingApiKeyException())
             runCatching {
-                val (symbol, exchange) = ticker.toProviderSymbol()
+                val (symbol, micCode) = ticker.toProviderSymbol()
                 val resp = service.timeSeries(
                     symbol = symbol,
-                    exchange = exchange,
+                    micCode = micCode,
                     interval = "1day",
                     outputSize = outputSize,
                     apiKey = key,
@@ -80,19 +80,26 @@ class TwelveDataProvider(
         }
 }
 
-/** Traduit un ticker interne ("AIR.PA") en (symbole, place) pour le fournisseur. */
+/**
+ * Traduit un ticker interne ("AIR.PA") en (symbole, code MIC) pour le fournisseur.
+ * Sans suffixe reconnu, renvoie le ticker tel quel et aucun MIC.
+ */
 fun String.toProviderSymbol(): Pair<String, String?> {
     val dot = lastIndexOf('.')
     if (dot <= 0) return this to null
     val base = substring(0, dot)
-    val suffix = substring(dot + 1).uppercase()
-    val exchange = when (suffix) {
-        "PA" -> "Euronext"
-        "AS" -> "Euronext"
-        "BR" -> "Euronext"
+    val mic = when (substring(dot + 1).uppercase()) {
+        "PA" -> "XPAR"   // Euronext Paris
+        "AS" -> "XAMS"   // Euronext Amsterdam
+        "BR" -> "XBRU"   // Euronext Bruxelles
+        "LS" -> "XLIS"   // Euronext Lisbonne
+        "MI" -> "XMIL"   // Borsa Italiana
+        "DE" -> "XETR"   // Xetra
+        "MC" -> "XMAD"   // Bolsa de Madrid
+        "L" -> "XLON"    // London Stock Exchange
         else -> null
     }
-    return base to exchange
+    return base to mic
 }
 
 class MissingApiKeyException : Exception("Clé API manquante : renseignez-la dans les réglages.")
@@ -102,7 +109,7 @@ internal interface TwelveDataService {
     @GET("time_series")
     suspend fun timeSeries(
         @Query("symbol") symbol: String,
-        @Query("exchange") exchange: String?,
+        @Query("mic_code") micCode: String?,
         @Query("interval") interval: String,
         @Query("outputsize") outputSize: Int,
         @Query("apikey") apiKey: String,

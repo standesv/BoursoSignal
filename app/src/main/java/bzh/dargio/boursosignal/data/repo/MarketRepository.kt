@@ -6,14 +6,17 @@ import bzh.dargio.boursosignal.data.local.toDomain
 import bzh.dargio.boursosignal.data.prefs.SettingsStore
 import bzh.dargio.boursosignal.data.remote.FakeMarketDataProvider
 import bzh.dargio.boursosignal.data.remote.MarketDataProvider
-import bzh.dargio.boursosignal.data.remote.TwelveDataProvider
+import bzh.dargio.boursosignal.data.remote.YahooFinanceProvider
 import bzh.dargio.boursosignal.domain.signals.Candle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /**
- * Accès aux cours : choisit la source selon les réglages (démo ou Twelve Data),
- * récupère l'historique et le met en cache local (§6, §13 mode hors-ligne).
+ * Accès aux cours : choisit la source selon les réglages, récupère l'historique
+ * et le met en cache local (§6, §13 mode hors-ligne).
+ *
+ * Source réelle par défaut : Yahoo Finance (gratuit, couvre Euronext Paris).
+ * Twelve Data reste disponible dans le code pour qui dispose d'un plan payant.
  */
 class MarketRepository(
     private val candleDao: CandleDao,
@@ -22,8 +25,7 @@ class MarketRepository(
 
     /** Fournisseur courant, reconstruit à chaque appel selon les réglages. */
     fun currentProvider(): MarketDataProvider =
-        if (settings.useDemoProvider) FakeMarketDataProvider()
-        else TwelveDataProvider(apiKeyProvider = { settings.apiKey })
+        if (settings.useDemoProvider) FakeMarketDataProvider() else YahooFinanceProvider()
 
     /** Bougies en cache pour une valeur (flux réactif). */
     fun observeCandles(ticker: String): Flow<List<Candle>> =

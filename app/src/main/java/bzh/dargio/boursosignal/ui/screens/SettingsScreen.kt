@@ -38,7 +38,6 @@ fun SettingsScreen(container: AppContainer) {
     val settings = container.settings
     val context = LocalContext.current
 
-    var apiKey by remember { mutableStateOf(settings.apiKey ?: "") }
     var demo by remember { mutableStateOf(settings.useDemoProvider) }
     var interval by remember { mutableStateOf(settings.refreshIntervalHours.toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled) }
@@ -54,12 +53,10 @@ fun SettingsScreen(container: AppContainer) {
                 Text("Mode démo (hors-ligne, sans clé)")
                 Switch(checked = demo, onCheckedChange = { demo = it })
             }
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text("Clé API (Twelve Data)") },
-                enabled = !demo,
-                modifier = Modifier.fillMaxWidth(),
+            Text(
+                if (demo) "Cours synthétiques générés localement, sans réseau."
+                else "Données réelles via Yahoo Finance (gratuit, couvre Euronext Paris — ex. AIR.PA). Aucune clé requise.",
+                style = MaterialTheme.typography.bodySmall,
             )
 
             HorizontalDivider()
@@ -78,7 +75,6 @@ fun SettingsScreen(container: AppContainer) {
 
             Button(
                 onClick = {
-                    settings.apiKey = apiKey.ifBlank { null }
                     settings.useDemoProvider = demo
                     settings.refreshIntervalHours = interval.toIntOrNull()?.coerceIn(1, 168) ?: 12
                     settings.notificationsEnabled = notifications
