@@ -65,6 +65,19 @@ interface PortfolioDao {
 
     @Query("SELECT * FROM transactions WHERE ticker = :ticker ORDER BY date ASC, id ASC")
     suspend fun transactionsFor(ticker: String): List<TransactionEntity>
+
+    @Query("DELETE FROM transactions WHERE id = :id")
+    suspend fun deleteTransaction(id: Long)
+
+    // Liquidités (espèces non investies).
+    @Query("SELECT * FROM portfolio_cash WHERE id = 0")
+    fun observeCash(): Flow<PortfolioCashEntity?>
+
+    @Query("SELECT * FROM portfolio_cash WHERE id = 0")
+    suspend fun cashRow(): PortfolioCashEntity?
+
+    @Upsert
+    suspend fun upsertCash(cash: PortfolioCashEntity)
 }
 
 @Dao

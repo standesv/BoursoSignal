@@ -45,6 +45,18 @@ data class TransactionEntity(
     val date: String,
 )
 
+/**
+ * Liquidités du portefeuille réel (espèces non investies). Une seule ligne
+ * (id = 0). L'utilisateur saisit un montant de base, puis le solde est
+ * automatiquement débité/crédité à chaque transaction saisie (frais inclus).
+ */
+@Entity(tableName = "portfolio_cash")
+data class PortfolioCashEntity(
+    @PrimaryKey val id: Int = 0,
+    val cash: Double = 0.0,
+    val initialized: Boolean = false,
+)
+
 /** Signal / alerte émis par le moteur. Entité Signal du §8. */
 @Entity(tableName = "signals")
 data class SignalEntity(

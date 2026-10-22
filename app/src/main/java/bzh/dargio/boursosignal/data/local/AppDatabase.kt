@@ -13,13 +13,14 @@ import bzh.dargio.boursosignal.domain.signals.StrategyConfig
         CandleEntity::class,
         PositionEntity::class,
         TransactionEntity::class,
+        PortfolioCashEntity::class,
         SignalEntity::class,
         StrategyEntity::class,
         PaperAccountEntity::class,
         PaperPositionEntity::class,
         PaperTradeEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
