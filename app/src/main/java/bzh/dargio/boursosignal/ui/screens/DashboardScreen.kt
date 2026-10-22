@@ -10,43 +10,71 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
+import bzh.dargio.boursosignal.domain.signals.Opportunity
+import bzh.dargio.boursosignal.domain.signals.Stance
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(container: AppContainer, onOpen: (String) -> Unit, onPaper: () -> Unit) {
-    val positions by container.portfolioRepository.observePositions().collectAsState(initial = emptyList())
-    val signals by container.signalRepository.observeAll().collectAsState(initial = emptyList())
-    val watchlist by container.watchlistRepository.observeWatchlist().collectAsState(initial = emptyList())
+fun DashboardScreen(
+    container: AppContainer,
+    onOpen: (String) -> Unit,
+    onPaper: () -> Unit,
+    onSearch: () -> Unit,
+) {
+    val scanner = container.marketScannerService
+    val opportunities by scanner.opportunities.collectAsState()
+    val scanning by scanner.scanning.collectAsState()
+    val scope = rememberCoroutineScope()
 
-    val invested = positions.sumOf { it.quantity * it.avgPrice }
+    // Lance un premier scan à l'ouverture si le classement est vide.
+    LaunchedEffect(Unit) {
+        if (opportunities.isEmpty() && !scanning) scanner.scan()
+    }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("BoursoSignal") }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("Investi", "%.0f €".format(invested), Modifier.weight(1f))
-                StatCard("Positions", positions.size.toString(), Modifier.weight(1f))
-                StatCard("Suivies", watchlist.size.toString(), Modifier.weight(1f))
-            }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Idées du jour") },
+                actions = {
+                    IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Rechercher une valeur") }
+                    IconButton(onClick = { scope.launch { scanner.scan() } }) { Icon(Icons.Filled.Refresh, "Relancer le scan") }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (scanning) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-            Card(Modifier.fillMaxWidth().clickable { onPaper() }) {
+            Card(
+                Modifier.fillMaxWidth().padding(12.dp).clickable { onPaper() },
+            ) {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -61,20 +89,23 @@ fun DashboardScreen(container: AppContainer, onOpen: (String) -> Unit, onPaper: 
                 }
             }
 
-            Text("Derniers signaux", fontWeight = FontWeight.SemiBold)
-            if (signals.isEmpty()) {
-                Text("Aucun signal récent.", style = MaterialTheme.typography.bodySmall)
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(signals.take(8), key = { it.id }) { s ->
-                        val buy = s.type == "BUY"
-                        Card(Modifier.fillMaxWidth().clickable { onOpen(s.ticker) }) {
-                            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("${if (buy) "▲" else "▼"} ${s.ticker}",
-                                    color = if (buy) BullGreen else BearRed, fontWeight = FontWeight.SemiBold)
-                                Text(s.date, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
+            when {
+                opportunities.isEmpty() && scanning ->
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Text("Analyse de l'univers Euronext Paris…", style = MaterialTheme.typography.bodySmall)
+                    }
+
+                opportunities.isEmpty() ->
+                    Text("Aucune opportunité pour l'instant. Relance le scan avec l'icône ↻.",
+                        Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(opportunities, key = { it.ticker }) { opp ->
+                        OpportunityCard(opp, scanner.displayName(opp.ticker)) { onOpen(opp.ticker) }
                     }
                 }
             }
@@ -83,11 +114,28 @@ fun DashboardScreen(container: AppContainer, onOpen: (String) -> Unit, onPaper: 
 }
 
 @Composable
-private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(16.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium)
-            Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+private fun OpportunityCard(opp: Opportunity, name: String, onClick: () -> Unit) {
+    val (label, color) = stanceLabel(opp.stance)
+    Card(Modifier.fillMaxWidth().clickable { onClick() }) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f)) {
+                Text(name, fontWeight = FontWeight.SemiBold)
+                Text(opp.ticker, style = MaterialTheme.typography.labelSmall)
+                opp.reasons.firstOrNull()?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(label, color = color, fontWeight = FontWeight.Bold)
+                Text("%.2f €".format(opp.price), style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
+}
+
+private fun stanceLabel(stance: Stance): Pair<String, Color> = when (stance) {
+    Stance.BUY -> "Achat" to BullGreen
+    Stance.WATCH -> "Surveiller" to Color(0xFFF59E0B)
+    Stance.AVOID -> "Éviter" to BearRed
+    Stance.NEUTRAL -> "Neutre" to Color(0xFF6B7280)
 }

@@ -12,8 +12,8 @@ import bzh.dargio.boursosignal.BoursoSignalApp
 import java.util.concurrent.TimeUnit
 
 /**
- * Tâche de fond (§10, §13) : rafraîchit les cours de la watchlist, évalue les
- * stratégies, notifie les nouveaux signaux et, si le mode test est actif, les
+ * Tâche de fond (§10, §13) : scanne l'univers Euronext Paris, évalue les stratégies
+ * sur la watchlist, notifie les nouveaux signaux et, si le mode test est actif, les
  * applique au portefeuille fictif. S'exécute même application fermée.
  */
 class RefreshWorker(
@@ -40,6 +40,8 @@ class RefreshWorker(
             }
             // Mode test : applique les signaux au portefeuille fictif (sans effet si désactivé).
             container.paperTradingService.apply(emitted)
+            // Rafraîchit le classement d'opportunités sur tout l'univers.
+            container.marketScannerService.scan()
             Result.success()
         } catch (t: Throwable) {
             Result.retry()

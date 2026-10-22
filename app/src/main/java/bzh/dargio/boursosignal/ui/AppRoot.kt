@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -29,11 +29,12 @@ import bzh.dargio.boursosignal.ui.screens.DashboardScreen
 import bzh.dargio.boursosignal.ui.screens.InstrumentDetailScreen
 import bzh.dargio.boursosignal.ui.screens.PaperTradingScreen
 import bzh.dargio.boursosignal.ui.screens.PortfolioScreen
+import bzh.dargio.boursosignal.ui.screens.SearchScreen
 import bzh.dargio.boursosignal.ui.screens.SettingsScreen
 import bzh.dargio.boursosignal.ui.screens.WatchlistScreen
 
 private sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
-    data object Dashboard : Dest("dashboard", "Tableau", Icons.Filled.Dashboard)
+    data object Ideas : Dest("ideas", "Idées", Icons.Filled.Lightbulb)
     data object Watchlist : Dest("watchlist", "Valeurs", Icons.AutoMirrored.Filled.List)
     data object Portfolio : Dest("portfolio", "Portefeuille", Icons.Filled.AccountBalanceWallet)
     data object Alerts : Dest("alerts", "Alertes", Icons.Filled.Notifications)
@@ -41,7 +42,7 @@ private sealed class Dest(val route: String, val label: String, val icon: ImageV
 }
 
 private val bottomDestinations = listOf(
-    Dest.Dashboard, Dest.Watchlist, Dest.Portfolio, Dest.Alerts, Dest.Settings,
+    Dest.Ideas, Dest.Watchlist, Dest.Portfolio, Dest.Alerts, Dest.Settings,
 )
 
 @Composable
@@ -72,14 +73,15 @@ fun AppRoot(container: AppContainer) {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = Dest.Dashboard.route,
+            startDestination = Dest.Ideas.route,
             modifier = Modifier.padding(padding),
         ) {
-            composable(Dest.Dashboard.route) {
+            composable(Dest.Ideas.route) {
                 DashboardScreen(
                     container = container,
                     onOpen = { navController.navigate("detail/$it") },
                     onPaper = { navController.navigate("paper") },
+                    onSearch = { navController.navigate("search") },
                 )
             }
             composable(Dest.Watchlist.route) {
@@ -90,6 +92,13 @@ fun AppRoot(container: AppContainer) {
                 AlertsScreen(container, onOpen = { navController.navigate("detail/$it") })
             }
             composable(Dest.Settings.route) { SettingsScreen(container) }
+            composable("search") {
+                SearchScreen(
+                    container = container,
+                    onBack = { navController.popBackStack() },
+                    onOpen = { navController.navigate("detail/$it") },
+                )
+            }
             composable("detail/{ticker}") { entry ->
                 val ticker = entry.arguments?.getString("ticker").orEmpty()
                 InstrumentDetailScreen(

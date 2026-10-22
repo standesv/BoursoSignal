@@ -9,12 +9,14 @@ import bzh.dargio.boursosignal.data.repo.PortfolioRepository
 import bzh.dargio.boursosignal.data.repo.SignalRepository
 import bzh.dargio.boursosignal.data.repo.StrategyRepository
 import bzh.dargio.boursosignal.data.repo.WatchlistRepository
+import bzh.dargio.boursosignal.data.universe.UniverseProvider
+import bzh.dargio.boursosignal.domain.MarketScannerService
 import bzh.dargio.boursosignal.domain.PaperTradingService
 import bzh.dargio.boursosignal.domain.SignalRefresher
 
 /**
  * Conteneur d'injection de dépendances manuel (sans framework) : instancie la
- * base, les réglages, les repositories et l'orchestrateur, partagés dans toute
+ * base, les réglages, les repositories et les services, partagés dans toute
  * l'application. Simple et suffisant pour une app mono-utilisateur.
  */
 class AppContainer(context: Context) {
@@ -29,6 +31,7 @@ class AppContainer(context: Context) {
     val signalRepository = SignalRepository(db.signalDao())
     val strategyRepository = StrategyRepository(db.strategyDao())
     val paperRepository = PaperRepository(db.paperDao())
+    val universeProvider = UniverseProvider(context)
 
     val signalRefresher = SignalRefresher(
         watchlist = watchlistRepository,
@@ -39,4 +42,10 @@ class AppContainer(context: Context) {
     )
 
     val paperTradingService = PaperTradingService(paperRepository)
+
+    val marketScannerService = MarketScannerService(
+        universe = universeProvider,
+        market = marketRepository,
+        strategies = strategyRepository,
+    )
 }
