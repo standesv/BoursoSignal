@@ -92,5 +92,5 @@ data class StrategyEntity(
     val stopLossPct: Double? = -0.08,
     val takeProfitPct: Double? = 0.15,
     val buyThreshold: Double = 1.5,
-    val sellThreshold: Double = 1.0,
+    val sellThreshold: Double = 1.5,
 )

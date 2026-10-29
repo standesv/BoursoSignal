@@ -33,13 +33,20 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         /**
-         * Base chiffrée en production (SQLCipher, §11). Par défaut, base Room
-         * standard : brancher le `SupportFactory` de SQLCipher avec une clé issue
-         * du Keystore pour activer le chiffrement.
+         * Base de données persistante. Les mises à jour de l'app **conservent les
+         * données** : on n'efface plus la base lors d'une montée de version.
+         *
+         * IMPORTANT pour les évolutions futures : tout changement de schéma doit
+         * incrémenter `version` ET fournir une `Migration` via `.addMigrations(...)`
+         * ci-dessous. Sans migration, une montée de version lèvera une exception
+         * (c'est volontaire : cela force à écrire la migration plutôt que d'effacer
+         * les données de l'utilisateur). Seules les RÉTROgradations (version
+         * installée plus récente que l'app) repartent d'une base neuve.
          */
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "boursosignal.db")
-                .fallbackToDestructiveMigration()
+                // .addMigrations(MIGRATION_4_5, …)  // à ajouter lors des futurs changements de schéma
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }
 }

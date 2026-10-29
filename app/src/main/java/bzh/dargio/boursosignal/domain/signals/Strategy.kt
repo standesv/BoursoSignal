@@ -26,7 +26,12 @@ data class SignalResult(
  * au §5.
  *
  * Les poids servent au scoring : un signal n'est émis que si la somme des poids
- * des conditions satisfaites atteint le seuil correspondant.
+ * des conditions satisfaites atteint le seuil correspondant. Le seuil de vente
+ * (1,5) est volontairement au niveau du seuil d'achat : une seule condition
+ * « molle » (ex. simple reflux du RSI sous 70, ou croisement EMA isolé) ne suffit
+ * donc plus à déclencher une vente — il en faut deux. Les règles de gestion du
+ * risque (stop-loss / take-profit) ajoutent `sellThreshold` et restent, elles,
+ * toujours déclenchantes.
  */
 data class StrategyConfig(
     val emaFastPeriod: Int = 20,
@@ -46,9 +51,9 @@ data class StrategyConfig(
     // Gestion du risque (optionnelle). null = désactivé.
     val stopLossPct: Double? = -0.08,
     val takeProfitPct: Double? = 0.15,
-    // Seuils de déclenchement.
+    // Seuils de déclenchement (vente aussi exigeante que l'achat : 2 conditions).
     val buyThreshold: Double = 1.5,
-    val sellThreshold: Double = 1.0,
+    val sellThreshold: Double = 1.5,
 ) {
     /** Nombre minimal de bougies pour que tous les indicateurs soient définis. */
     val minHistory: Int

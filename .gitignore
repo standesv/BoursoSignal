@@ -14,8 +14,12 @@ engine-verify/out/
 engine-verify/build/
 engine-verify/.gradle/
 
-# Signature release (ne jamais committer de keystore ni de mots de passe)
+# Signature release : ne jamais committer de mots de passe ni de keystore arbitraire.
 keystore.properties
 *.jks
 *.keystore
 *.p12
+
+# Exception : keystore de signature STABLE de l'app, volontairement versionné
+# pour que les mises à jour s'installent sans désinstaller (app personnelle).
+!keystore/boursosignal.jks

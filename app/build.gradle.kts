@@ -9,17 +9,30 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// Signature de release OPTIONNELLE : activée si un keystore est fourni via
-// keystore.properties (local) ou des variables d'environnement (CI GitHub).
-// Sans keystore, la release est construite non signée et l'APK debug reste
-// installable tel quel.
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) FileInputStream(keystorePropertiesFile).use { load(it) }
 }
-fun signingProp(name: String): String? =
-    keystoreProperties.getProperty(name) ?: System.getenv(name)
-val releaseStoreFile: String? = signingProp("RELEASE_STORE_FILE")
+fun signingProp(name: String, default: String? = null): String? =
+    keystoreProperties.getProperty(name) ?: System.getenv(name) ?: default
+
+// Keystore de signature STABLE : versionné dans le dépôt (application personnelle)
+// pour que chaque build (local et CI) soit signé avec la MÊME clé. C'est ce qui
+// permet d'installer une mise à jour par-dessus la version précédente sans
+// désinstaller (et donc sans perdre les données). Surchargé par
+// keystore.properties en local ou par des secrets CI (RELEASE_STORE_FILE, …).
+val committedKeystore = rootProject.file("keystore/boursosignal.jks")
+val releaseStoreFile: String? = signingProp(
+    "RELEASE_STORE_FILE",
+    if (committedKeystore.exists()) committedKeystore.absolutePath else null,
+)
+val releaseStorePassword: String = signingProp("RELEASE_STORE_PASSWORD", "boursosignal")!!
+val releaseKeyAlias: String = signingProp("RELEASE_KEY_ALIAS", "boursosignal")!!
+val releaseKeyPassword: String = signingProp("RELEASE_KEY_PASSWORD", "boursosignal")!!
+
+// versionCode monotone (numéro de run CI) : chaque build est une vraie mise à
+// jour incrémentale ; 1 en build local.
+val ciBuild: Int = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toIntOrNull() ?: 1
 
 android {
     namespace = "bzh.dargio.boursosignal"
@@ -29,8 +42,8 @@ android {
         applicationId = "bzh.dargio.boursosignal"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = ciBuild
+        versionName = "0.1.$ciBuild"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -38,20 +51,23 @@ android {
         create("release") {
             if (releaseStoreFile != null) {
                 storeFile = file(releaseStoreFile)
-                storePassword = signingProp("RELEASE_STORE_PASSWORD")
-                keyAlias = signingProp("RELEASE_KEY_ALIAS")
-                keyPassword = signingProp("RELEASE_KEY_PASSWORD")
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
 
     buildTypes {
+        // Debug ET release signés avec la même clé stable : quel que soit l'APK
+        // installé, les mises à jour s'installent sans désinstallation.
+        debug {
+            if (releaseStoreFile != null) signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            if (releaseStoreFile != null) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            if (releaseStoreFile != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
