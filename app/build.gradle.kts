@@ -13,8 +13,11 @@ val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) FileInputStream(keystorePropertiesFile).use { load(it) }
 }
+// Récupère un paramètre de signature depuis keystore.properties, puis les
+// variables d'environnement (CI). Une valeur vide (secret CI non défini →
+// chaîne vide) est traitée comme absente et retombe sur `default`.
 fun signingProp(name: String, default: String? = null): String? =
-    keystoreProperties.getProperty(name) ?: System.getenv(name) ?: default
+    (keystoreProperties.getProperty(name) ?: System.getenv(name))?.takeIf { it.isNotBlank() } ?: default
 
 // Keystore de signature STABLE : versionné dans le dépôt (application personnelle)
 // pour que chaque build (local et CI) soit signé avec la MÊME clé. C'est ce qui
