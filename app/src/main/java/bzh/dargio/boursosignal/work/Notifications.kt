@@ -32,6 +32,12 @@ object Notifications {
         push(context, id, "Vendre $ticker ?", reason)
     }
 
+    /** Ordre fictif exécuté automatiquement en mode test. */
+    fun notifyPaperTrade(context: Context, id: Int, ticker: String, name: String, type: String, qty: Int) {
+        val sens = if (type == "BUY") "Achat" else "Vente"
+        push(context, id, "Mode test : $sens de $qty $ticker", "$name — opération simulée automatiquement par l'app")
+    }
+
     private fun push(context: Context, id: Int, title: String, body: String) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)

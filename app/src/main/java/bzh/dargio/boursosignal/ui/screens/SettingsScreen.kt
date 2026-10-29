@@ -1,5 +1,7 @@
 package bzh.dargio.boursosignal.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -100,6 +102,26 @@ fun SettingsScreen(container: AppContainer) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Enregistrer") }
             if (saved) Text("Réglages enregistrés.", style = MaterialTheme.typography.bodySmall)
+
+            // ---- Notifications en arrière-plan ----
+            HorizontalDivider()
+            Text("Notifications en arrière-plan", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Pour recevoir les alertes (signaux, ventes auto du mode test) même quand l'app est " +
+                    "fermée, autorise son exécution en arrière-plan. Android bride sinon les vérifications " +
+                    "quand le téléphone est en veille. Les cours étant journaliers, une vérification toutes " +
+                    "les quelques heures suffit (règle l'intervalle ci-dessus).",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                        .setData(Uri.parse("package:${context.packageName}"))
+                    val ok = runCatching { context.startActivity(intent) }.isSuccess
+                    if (!ok) runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Autoriser l'exécution en arrière-plan") }
 
             // ---- Mode test ----
             HorizontalDivider()

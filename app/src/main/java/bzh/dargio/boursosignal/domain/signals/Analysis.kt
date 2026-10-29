@@ -26,6 +26,7 @@ data class AnalysisReport(
     val low52: Double?,
     val fromHighPct: Double?,
     val volumeVsAvgPct: Double?,
+    val pattern: CandlePattern?,
     val highlights: List<String>,
     val suggestion: String,
 )
@@ -86,6 +87,9 @@ object Analyzer {
         val p1 = perfOver(closes, 21); val p3 = perfOver(closes, 63)
         val p6 = perfOver(closes, 126); val p12 = perfOver(closes, 252)
 
+        // Analyse graphique : figure en chandelier de retournement sur les dernières bougies.
+        val pattern = Candlestick.dominant(candles)
+
         val highlights = buildList {
             add(if (trendUp) "Tendance de fond haussière (EMA${config.emaFastPeriod} au-dessus de EMA${config.emaSlowPeriod})"
             else "Tendance de fond baissière (EMA${config.emaFastPeriod} sous EMA${config.emaSlowPeriod})")
@@ -94,6 +98,14 @@ object Analyzer {
                 add("Momentum : RSI ${fmt1(it)} ($zone)")
             }
             macdPositiveOf(macd)?.let { add(if (it) "MACD positif : dynamique favorable" else "MACD négatif : dynamique faible") }
+            pattern?.let {
+                val sens = when (it.bias) {
+                    PatternBias.BULLISH -> "signal de retournement haussier"
+                    PatternBias.BEARISH -> "signal de retournement baissier"
+                    PatternBias.NEUTRAL -> "indécision"
+                }
+                add("Chandeliers : ${it.name} ($sens) — ${it.detail}")
+            }
             val perfParts = listOfNotNull(
                 p1?.let { "1M ${signed(it)}" }, p3?.let { "3M ${signed(it)}" },
                 p6?.let { "6M ${signed(it)}" }, p12?.let { "1A ${signed(it)}" },
@@ -104,15 +116,15 @@ object Analyzer {
             volVsAvg?.let { if (it > 20) add("Volume récent soutenu (+${fmt0(it)} % vs moyenne)") else if (it < -20) add("Volume récent faible (${fmt0(it)} % vs moyenne)") }
         }
 
-        val suggestion = buildSuggestion(trendUp, rsi, risk, config)
+        val suggestion = buildSuggestion(trendUp, rsi, risk, config, pattern)
 
         return AnalysisReport(
             price, trendUp, emaFast, emaSlow, rsi, macdPositiveOf(macd),
-            p1, p3, p6, p12, vol, risk, high52, low52, fromHigh, volVsAvg, highlights, suggestion,
+            p1, p3, p6, p12, vol, risk, high52, low52, fromHigh, volVsAvg, pattern, highlights, suggestion,
         )
     }
 
-    private fun buildSuggestion(trendUp: Boolean, rsi: Double?, risk: RiskLevel, config: StrategyConfig): String {
+    private fun buildSuggestion(trendUp: Boolean, rsi: Double?, risk: RiskLevel, config: StrategyConfig, pattern: CandlePattern?): String {
         val base = if (trendUp) "Profil plutôt favorable à l'achat : la tendance de fond est haussière"
         else "Profil prudent : la tendance de fond est baissière, mieux vaut attendre un retournement"
         val rsiNote = when {
@@ -122,7 +134,12 @@ object Analyzer {
             else -> ", avec un momentum sain"
         }
         val riskNote = " Risque ${riskLabel(risk).lowercase()} (volatilité)."
-        return "$base$rsiNote.$riskNote"
+        val patternNote = when (pattern?.bias) {
+            PatternBias.BULLISH -> " Figure en chandelier repérée : ${pattern.name.lowercase()}, plutôt haussière à court terme."
+            PatternBias.BEARISH -> " Figure en chandelier repérée : ${pattern.name.lowercase()}, plutôt baissière à court terme."
+            else -> ""
+        }
+        return "$base$rsiNote.$riskNote$patternNote"
     }
 
     private fun macdPositiveOf(macd: Double?): Boolean? = macd?.let { it > 0 }

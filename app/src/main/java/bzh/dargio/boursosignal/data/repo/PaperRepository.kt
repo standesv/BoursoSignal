@@ -12,6 +12,9 @@ import bzh.dargio.boursosignal.domain.signals.PaperHolding
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
+/** Un ordre fictif exécuté automatiquement (pour notification). */
+data class PaperAutoTrade(val ticker: String, val type: String, val qty: Int, val reason: String)
+
 /**
  * Portefeuille fictif (mode test / paper trading). Persiste l'état et applique
  * les ordres au portefeuille virtuel via [PaperBroker] (logique pure testée).
@@ -45,7 +48,6 @@ class PaperRepository(
     suspend fun setEnabled(enabled: Boolean) {
         val acc = dao.account()
         if (acc == null) {
-            // Première activation sans compte existant : crée un portefeuille neuf.
             if (enabled) activate(10_000.0)
             return
         }
@@ -54,19 +56,23 @@ class PaperRepository(
 
     suspend fun reset(initialCapital: Double) = activate(initialCapital)
 
-    /** Mode automatique : une position par valeur, tranche fixe du capital. */
-    suspend fun applySignal(ticker: String, type: String, price: Double, date: String, reason: String) {
-        val loaded = load() ?: return
+    /**
+     * Mode automatique : une position par valeur, tranche fixe du capital.
+     * Renvoie l'ordre exécuté (pour notification), ou null si rien n'a été fait.
+     */
+    suspend fun applySignal(ticker: String, type: String, price: Double, date: String, reason: String): PaperAutoTrade? {
+        val loaded = load() ?: return null
         val (acc, account) = loaded
-        if (!acc.enabled) return
+        if (!acc.enabled) return null
         val fee = activeFee()
         val exec = when (type) {
-            "BUY" -> if (account.positions.containsKey(ticker)) return
+            "BUY" -> if (account.positions.containsKey(ticker)) return null
             else PaperBroker.buyBudget(account, ticker, price, acc.initialCapital * BUY_FRACTION, fee)
             "SELL" -> PaperBroker.sellAll(account, ticker, price, fee)
-            else -> return
+            else -> return null
         }
-        persist(acc, exec, ticker, type, date, reason)
+        val qty = persist(acc, exec, ticker, type, date, reason)
+        return if (qty > 0) PaperAutoTrade(ticker, type, qty, reason) else null
     }
 
     /** Achat manuel d'un nombre d'actions. Renvoie le nombre réellement acheté. */

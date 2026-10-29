@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Tâche de fond (§10, §13) : scanne l'univers, évalue les stratégies, notifie les
- * signaux, applique le mode test, et conseille la VENTE sur les positions détenues.
+ * signaux, applique le mode test (et notifie ses ordres), et conseille la VENTE
+ * sur les positions détenues.
  */
 class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
@@ -26,6 +27,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         return try {
             val emitted = container.signalRefresher.refreshAll()
             val notify = container.settings.notificationsEnabled
+            val nameByTicker = emitted.associate { it.ticker to it.name }
             if (notify) {
                 emitted.forEachIndexed { index, s ->
                     Notifications.notifySignal(
@@ -36,7 +38,22 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     )
                 }
             }
-            container.paperTradingService.apply(emitted)
+
+            // Mode test automatique : applique les signaux et notifie chaque ordre fictif.
+            val paperTrades = container.paperTradingService.apply(emitted)
+            if (notify) {
+                paperTrades.forEach { t ->
+                    Notifications.notifyPaperTrade(
+                        applicationContext,
+                        (t.ticker.hashCode() and 0xffff) + 3,
+                        t.ticker,
+                        nameByTicker[t.ticker] ?: t.ticker,
+                        t.type,
+                        t.qty,
+                    )
+                }
+            }
+
             container.marketScannerService.scan()
 
             // Conseil de vente sur les positions réelles détenues.
