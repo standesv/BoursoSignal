@@ -40,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import bzh.dargio.boursosignal.data.local.PositionEntity
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.Analyzer
 import bzh.dargio.boursosignal.domain.signals.BuyRationale
@@ -49,7 +48,6 @@ import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
 import bzh.dargio.boursosignal.domain.signals.NewsSentiment
 import bzh.dargio.boursosignal.domain.signals.Opportunity
 import bzh.dargio.boursosignal.domain.signals.RecoTone
-import bzh.dargio.boursosignal.domain.signals.Recommendation
 import bzh.dargio.boursosignal.domain.signals.Recommender
 import bzh.dargio.boursosignal.domain.signals.RiskLevel
 import bzh.dargio.boursosignal.domain.signals.Stance
@@ -58,6 +56,9 @@ import bzh.dargio.boursosignal.ui.theme.BullGreen
 
 private val AMBER = Color(0xFFF59E0B)
 private val GREY = Color(0xFF6B7280)
+
+/** Détention d'une valeur, réelle ou fictive (mode test). */
+private data class HeldInfo(val avgPrice: Double, val source: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,26 +71,33 @@ fun DashboardScreen(
     val scanner = container.marketScannerService
     val opportunities by scanner.opportunities.collectAsState()
     val scanning by scanner.scanning.collectAsState()
-    val positions by container.portfolioRepository.observePositions().collectAsState(initial = emptyList())
+    val realPositions by container.portfolioRepository.observePositions().collectAsState(initial = emptyList())
+    val paperPositions by container.paperRepository.observePositions().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var added by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(Unit) { if (opportunities.isEmpty() && !scanning) scanner.scan() }
 
-    val posByTicker = remember(positions) { positions.associateBy { it.ticker } }
+    // Valeurs détenues, réelles OU fictives. Le réel l'emporte si détenu dans les deux.
+    val heldByTicker = remember(realPositions, paperPositions) {
+        val m = HashMap<String, HeldInfo>()
+        paperPositions.forEach { m[it.ticker] = HeldInfo(it.avgPrice, "test") }
+        realPositions.forEach { m[it.ticker] = HeldInfo(it.avgPrice, "réel") }
+        m
+    }
 
-    // Pour les valeurs détenues, calcule le conseil de gestion de position
-    // (conserver/alléger/vendre) afin que l'avis affiché ici soit cohérent avec
-    // l'onglet Portefeuille. Seules les valeurs détenues entraînent un calcul.
-    val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, positions) {
-        if (positions.isEmpty()) { value = emptyMap(); return@produceState }
+    // Pour les valeurs détenues (réel ou test), conseil de gestion de position
+    // (conserver/alléger/vendre) afin que l'avis des Idées soit cohérent avec le
+    // portefeuille. Seules les valeurs détenues entraînent un calcul.
+    val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, realPositions, paperPositions) {
+        if (heldByTicker.isEmpty()) { value = emptyMap(); return@produceState }
         val cfg = container.strategyRepository.activeConfig()
         val map = mutableMapOf<String, ExitAdvice>()
         opportunities.forEach { opp ->
-            val pos = posByTicker[opp.ticker] ?: return@forEach
+            val held = heldByTicker[opp.ticker] ?: return@forEach
             val candles = container.marketRepository.cachedCandles(opp.ticker)
                 .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
-            if (candles.isNotEmpty()) map[opp.ticker] = ExitAdvisor.advise(opp.ticker, candles, pos.avgPrice, cfg)
+            if (candles.isNotEmpty()) map[opp.ticker] = ExitAdvisor.advise(opp.ticker, candles, held.avgPrice, cfg)
         }
         value = map
     }
@@ -134,7 +142,7 @@ fun DashboardScreen(
                         OpportunityCard(
                             opp = opp,
                             name = displayName,
-                            position = posByTicker[opp.ticker],
+                            held = heldByTicker[opp.ticker],
                             exit = exitByTicker[opp.ticker],
                             isAdded = opp.ticker in added,
                             onOpen = { onOpen(opp.ticker) },
@@ -151,7 +159,7 @@ fun DashboardScreen(
 private fun OpportunityCard(
     opp: Opportunity,
     name: String,
-    position: PositionEntity?,
+    held: HeldInfo?,
     exit: ExitAdvice?,
     isAdded: Boolean,
     onOpen: () -> Unit,
@@ -171,11 +179,10 @@ private fun OpportunityCard(
             Column(Modifier.weight(1f)) {
                 Text(name, fontWeight = FontWeight.SemiBold)
                 Text("${opp.ticker} · Risque ${Analyzer.riskLabel(opp.risk)}", style = MaterialTheme.typography.labelSmall, color = riskColor(opp.risk))
-                if (position != null) {
-                    val pru = position.avgPrice
-                    val plPct = if (pru > 0) (opp.price - pru) / pru * 100.0 else 0.0
+                if (held != null) {
+                    val plPct = if (held.avgPrice > 0) (opp.price - held.avgPrice) / held.avgPrice * 100.0 else 0.0
                     Text(
-                        "Déjà en portefeuille · PRU ${"%.2f €".format(pru)} · ${"%+.1f %%".format(plPct)}",
+                        "Déjà en portefeuille (${held.source}) · PRU ${"%.2f €".format(held.avgPrice)} · ${"%+.1f %%".format(plPct)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (plPct >= 0) BullGreen else BearRed,
                         fontWeight = FontWeight.Medium,
