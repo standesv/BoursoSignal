@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -39,17 +40,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import bzh.dargio.boursosignal.data.local.PositionEntity
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.Analyzer
 import bzh.dargio.boursosignal.domain.signals.BuyRationale
+import bzh.dargio.boursosignal.domain.signals.ExitAdvice
+import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
 import bzh.dargio.boursosignal.domain.signals.NewsSentiment
 import bzh.dargio.boursosignal.domain.signals.Opportunity
+import bzh.dargio.boursosignal.domain.signals.RecoTone
+import bzh.dargio.boursosignal.domain.signals.Recommendation
+import bzh.dargio.boursosignal.domain.signals.Recommender
 import bzh.dargio.boursosignal.domain.signals.RiskLevel
 import bzh.dargio.boursosignal.domain.signals.Stance
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
 
 private val AMBER = Color(0xFFF59E0B)
+private val GREY = Color(0xFF6B7280)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,10 +70,29 @@ fun DashboardScreen(
     val scanner = container.marketScannerService
     val opportunities by scanner.opportunities.collectAsState()
     val scanning by scanner.scanning.collectAsState()
+    val positions by container.portfolioRepository.observePositions().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var added by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(Unit) { if (opportunities.isEmpty() && !scanning) scanner.scan() }
+
+    val posByTicker = remember(positions) { positions.associateBy { it.ticker } }
+
+    // Pour les valeurs détenues, calcule le conseil de gestion de position
+    // (conserver/alléger/vendre) afin que l'avis affiché ici soit cohérent avec
+    // l'onglet Portefeuille. Seules les valeurs détenues entraînent un calcul.
+    val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, positions) {
+        if (positions.isEmpty()) { value = emptyMap(); return@produceState }
+        val cfg = container.strategyRepository.activeConfig()
+        val map = mutableMapOf<String, ExitAdvice>()
+        opportunities.forEach { opp ->
+            val pos = posByTicker[opp.ticker] ?: return@forEach
+            val candles = container.marketRepository.cachedCandles(opp.ticker)
+                .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
+            if (candles.isNotEmpty()) map[opp.ticker] = ExitAdvisor.advise(opp.ticker, candles, pos.avgPrice, cfg)
+        }
+        value = map
+    }
 
     Scaffold(
         topBar = {
@@ -107,6 +134,8 @@ fun DashboardScreen(
                         OpportunityCard(
                             opp = opp,
                             name = displayName,
+                            position = posByTicker[opp.ticker],
+                            exit = exitByTicker[opp.ticker],
                             isAdded = opp.ticker in added,
                             onOpen = { onOpen(opp.ticker) },
                             onAdd = { scope.launch { container.watchlistRepository.add(opp.ticker, displayName); added = added + opp.ticker } },
@@ -119,20 +148,43 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun OpportunityCard(opp: Opportunity, name: String, isAdded: Boolean, onOpen: () -> Unit, onAdd: () -> Unit) {
-    val (label, color) = stanceLabel(opp.stance)
-    val explanation = if (opp.stance == Stance.BUY || opp.stance == Stance.WATCH)
-        BuyRationale.whyBuy(name, opp, NewsSentiment.NEUTRAL) else opp.reasons.firstOrNull() ?: ""
+private fun OpportunityCard(
+    opp: Opportunity,
+    name: String,
+    position: PositionEntity?,
+    exit: ExitAdvice?,
+    isAdded: Boolean,
+    onOpen: () -> Unit,
+    onAdd: () -> Unit,
+) {
+    val reco = Recommender.of(opp.stance, exit)
+    val color = toneColor(reco.tone)
+
+    val explanation = when {
+        reco.note != null -> reco.note!!
+        opp.stance == Stance.BUY || opp.stance == Stance.WATCH -> BuyRationale.whyBuy(name, opp, NewsSentiment.NEUTRAL)
+        else -> opp.reasons.firstOrNull() ?: ""
+    }
 
     Card(Modifier.fillMaxWidth().clickable { onOpen() }) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(name, fontWeight = FontWeight.SemiBold)
                 Text("${opp.ticker} · Risque ${Analyzer.riskLabel(opp.risk)}", style = MaterialTheme.typography.labelSmall, color = riskColor(opp.risk))
+                if (position != null) {
+                    val pru = position.avgPrice
+                    val plPct = if (pru > 0) (opp.price - pru) / pru * 100.0 else 0.0
+                    Text(
+                        "Déjà en portefeuille · PRU ${"%.2f €".format(pru)} · ${"%+.1f %%".format(plPct)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (plPct >= 0) BullGreen else BearRed,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
                 if (explanation.isNotBlank()) Text(explanation, style = MaterialTheme.typography.bodySmall)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(label, color = color, fontWeight = FontWeight.Bold)
+                Text(reco.label, color = color, fontWeight = FontWeight.Bold)
                 Text("%.2f €".format(opp.price), style = MaterialTheme.typography.bodySmall)
                 IconButton(onClick = onAdd) {
                     if (isAdded) Icon(Icons.Filled.Check, "Suivie") else Icon(Icons.Filled.Add, "Suivre cette valeur")
@@ -142,11 +194,11 @@ private fun OpportunityCard(opp: Opportunity, name: String, isAdded: Boolean, on
     }
 }
 
-private fun stanceLabel(stance: Stance): Pair<String, Color> = when (stance) {
-    Stance.BUY -> "Achat" to BullGreen
-    Stance.WATCH -> "Surveiller" to AMBER
-    Stance.AVOID -> "Éviter" to BearRed
-    Stance.NEUTRAL -> "Neutre" to Color(0xFF6B7280)
+private fun toneColor(tone: RecoTone): Color = when (tone) {
+    RecoTone.POSITIVE -> BullGreen
+    RecoTone.CAUTION -> AMBER
+    RecoTone.NEGATIVE -> BearRed
+    RecoTone.NEUTRAL -> GREY
 }
 
 private fun riskColor(r: RiskLevel): Color = when (r) {
