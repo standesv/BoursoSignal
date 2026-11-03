@@ -508,7 +508,7 @@ private fun SellRealDialog(
         title = { Text("Vendre $name") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("$ticker · détenu ${"%.0f".format(held)} action(s)", style = MaterialTheme.typography.bodySmall)
+                Text("$ticker · détenu ${"%.0f".format(held)} · PRU ${"%.2f €".format(avgPrice)}", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(qtyText, { qtyText = it.filter { c -> c.isDigit() } }, label = { Text("Quantité à vendre") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -521,7 +521,7 @@ private fun SellRealDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                 HorizontalDivider()
                 LineItem("Produit net estimé", "%.2f €".format(proceeds))
-                MarginLine(avgPrice, margin, marginPct)
+                MarginLine(margin, marginPct)
             }
         },
     )
@@ -556,7 +556,7 @@ private fun SellPaperDialog(
         title = { Text("Vendre $name (test)") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("$ticker · détenu $held action(s) · cours ${"%.2f €".format(price)}", style = MaterialTheme.typography.bodySmall)
+                Text("$ticker · détenu $held · PRU ${"%.2f €".format(avgPrice)} · cours ${"%.2f €".format(price)}", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(qtyText, { qtyText = it.filter { c -> c.isDigit() } }, label = { Text("Quantité à vendre") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -567,7 +567,7 @@ private fun SellPaperDialog(
                 LineItem("Montant brut", "%.2f €".format(gross))
                 LineItem("Frais (${feeProfile.label})", "-%.2f €".format(fee))
                 LineItem("Produit net estimé", "%.2f €".format(net))
-                MarginLine(avgPrice, margin, marginPct)
+                MarginLine(margin, marginPct)
             }
         },
     )
@@ -722,18 +722,19 @@ private fun AddTransactionDialog(
 
 @Composable
 private fun LineItem(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(value, fontWeight = FontWeight.Medium)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
-/** Ligne de plus/moins-value réalisée par rapport au prix de revient (PRU). */
+/** Ligne de plus/moins-value réalisée (frais déduits) par rapport au prix de revient. */
 @Composable
-private fun MarginLine(avgPrice: Double, margin: Double, marginPct: Double) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("Marge vs achat (PRU ${"%.2f €".format(avgPrice)})", style = MaterialTheme.typography.bodyMedium)
-        Text("%+.2f € (%+.1f %%)".format(margin, marginPct), fontWeight = FontWeight.Bold, color = if (margin >= 0) BullGreen else BearRed)
+private fun MarginLine(margin: Double, marginPct: Double) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("Plus/moins-value", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text("%+.2f € (%+.1f %%)".format(margin, marginPct), fontWeight = FontWeight.Bold, maxLines = 1,
+            color = if (margin >= 0) BullGreen else BearRed)
     }
 }
 
