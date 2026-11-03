@@ -25,5 +25,6 @@ class BoursoSignalApp : Application() {
         appScope.launch { container.strategyRepository.ensureDefault() }
 
         RefreshWorker.schedule(this, container.settings.refreshIntervalHours)
+        RefreshWorker.scheduleMarketOpen(this)
     }
 }

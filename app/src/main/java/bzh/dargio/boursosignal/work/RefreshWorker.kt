@@ -12,6 +12,9 @@ import bzh.dargio.boursosignal.BoursoSignalApp
 import bzh.dargio.boursosignal.domain.signals.ExitAction
 import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
 import kotlinx.coroutines.flow.first
+import java.time.Duration
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 /**
@@ -84,12 +87,33 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
 
     companion object {
         private const val WORK_NAME = "boursosignal_refresh"
+        private const val MARKET_OPEN_WORK = "boursosignal_market_open"
 
         fun schedule(context: Context, intervalHours: Int) {
             val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             val request = PeriodicWorkRequestBuilder<RefreshWorker>(intervalHours.coerceAtLeast(1).toLong(), TimeUnit.HOURS)
                 .setConstraints(constraints).build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+        }
+
+        /**
+         * Rafraîchissement quotidien calé peu après l'ouverture d'Euronext Paris
+         * (~9h10, heure de Paris), pour que les positions prises avant l'ouverture
+         * se valorisent dès le début de séance. Le timing exact dépend d'Android
+         * (Doze), d'où l'intérêt d'autoriser l'exécution en arrière-plan.
+         */
+        fun scheduleMarketOpen(context: Context) {
+            val zone = ZoneId.of("Europe/Paris")
+            val now = ZonedDateTime.now(zone)
+            var next = now.withHour(9).withMinute(10).withSecond(0).withNano(0)
+            if (!next.isAfter(now)) next = next.plusDays(1)
+            val delayMinutes = Duration.between(now, next).toMinutes().coerceAtLeast(1)
+            val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            val request = PeriodicWorkRequestBuilder<RefreshWorker>(24, TimeUnit.HOURS)
+                .setConstraints(constraints)
+                .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(MARKET_OPEN_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
         }
     }
 }

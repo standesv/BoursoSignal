@@ -63,12 +63,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.ZoneId
 
 private val AMBER = Color(0xFFF59E0B)
 
 private enum class PortfolioMode { REAL, TEST }
 
-private data class PositionView(val position: PositionEntity, val price: Double?, val advice: ExitAdvice?)
+private data class PositionView(val position: PositionEntity, val price: Double?, val priceDate: String?, val advice: ExitAdvice?)
+
+/** Cours courant d'une position fictive + date de la séance correspondante. */
+private data class PriceInfo(val price: Double, val date: String?, val advice: ExitAdvice?)
+
+/** Date du jour sur la place de Paris (pour repérer un cours d'une séance antérieure). */
+private fun parisToday(): String = LocalDate.now(ZoneId.of("Europe/Paris")).toString()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,6 +143,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
     val transactions by container.portfolioRepository.observeTransactions().collectAsState(initial = emptyList())
     val cashRow by container.portfolioRepository.observeCash().collectAsState(initial = null)
     val scope = rememberCoroutineScope()
+    val today = remember { parisToday() }
 
     val views by produceState(initialValue = emptyList<PositionView>(), positions) {
         val cfg = container.strategyRepository.activeConfig()
@@ -145,7 +153,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
             val news = container.newsProvider.forQuery(nameOf(p.ticker)).getOrDefault(emptyList())
             val sentiment = NewsAnalyzer.sentimentOf(news.map { it.title }).first
             val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg, sentiment) else null
-            PositionView(p, candles.lastOrNull()?.close, advice)
+            PositionView(p, candles.lastOrNull()?.close, candles.lastOrNull()?.date, advice)
         }.sortedBy { priority(it.advice?.action) }
     }
 
@@ -187,6 +195,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
         } else views.forEach { v ->
             RealPositionCard(
                 v = v,
+                today = today,
                 name = nameOf(v.position.ticker),
                 onSell = { sellPos = v },
                 onEdit = { editPos = v.position },
@@ -275,7 +284,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
 }
 
 @Composable
-private fun RealPositionCard(v: PositionView, name: String, onSell: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun RealPositionCard(v: PositionView, today: String, name: String, onSell: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     val p = v.position
     val cur = v.price ?: p.avgPrice
     val pnlPct = if (p.avgPrice > 0) (cur - p.avgPrice) / p.avgPrice * 100 else 0.0
@@ -291,6 +300,7 @@ private fun RealPositionCard(v: PositionView, name: String, onSell: () -> Unit, 
                     Text("%+.1f %%".format(pnlPct), color = if (pnlPct >= 0) BullGreen else BearRed)
                 }
             }
+            StalePriceNote(v.priceDate, today)
             v.advice?.let { a ->
                 val (label, color) = adviceLabel(a.action)
                 Text("Conseil : $label", color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
@@ -315,6 +325,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
     val positions by paper.observePositions().collectAsState(initial = emptyList())
     val trades by paper.observeTrades().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    val today = remember { parisToday() }
 
     val acc = account
     if (acc == null || !acc.enabled) {
@@ -329,20 +340,21 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
         return
     }
 
-    val enriched by produceState(initialValue = emptyMap<String, Pair<Double, ExitAdvice?>>(), positions) {
+    val enriched by produceState(initialValue = emptyMap<String, PriceInfo>(), positions) {
         val cfg = container.strategyRepository.activeConfig()
-        val map = mutableMapOf<String, Pair<Double, ExitAdvice?>>()
+        val map = mutableMapOf<String, PriceInfo>()
         positions.forEach { p ->
             val candles = container.marketRepository.refresh(p.ticker).getOrNull()
                 ?: container.marketRepository.cachedCandles(p.ticker)
             val price = candles.lastOrNull()?.close ?: p.avgPrice
+            val date = candles.lastOrNull()?.date
             val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg) else null
-            map[p.ticker] = price to advice
+            map[p.ticker] = PriceInfo(price, date, advice)
         }
         value = map
     }
 
-    val invested = positions.sumOf { it.quantity * (enriched[it.ticker]?.first ?: it.avgPrice) }
+    val invested = positions.sumOf { it.quantity * (enriched[it.ticker]?.price ?: it.avgPrice) }
     val equity = acc.cash + invested
     val returnPct = if (acc.initialCapital > 0) (equity - acc.initialCapital) / acc.initialCapital * 100 else 0.0
 
@@ -370,8 +382,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
             Text("Aucune position ouverte. Le mode auto agit sur signal, ou achète depuis la fiche d'une valeur.",
                 style = MaterialTheme.typography.bodySmall)
         } else positions.forEach { p ->
-            val (price, advice) = enriched[p.ticker] ?: (p.avgPrice to null)
-            PaperPositionCard(p, nameOf(p.ticker), price, advice, onSell = { sellTarget = p })
+            PaperPositionCard(p, nameOf(p.ticker), today, enriched[p.ticker], onSell = { sellTarget = p })
         }
 
         Text("Journal des opérations fictives", fontWeight = FontWeight.SemiBold)
@@ -399,14 +410,15 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
 
         HorizontalDivider()
         Text(
-            "Variation calculée d'une séance à l'autre (données journalières). Frais de courtage " +
-                "simulés selon le profil choisi dans les Réglages. Aucun argent réel, aucun lien avec Boursorama.",
+            "Variation calculée d'une séance à l'autre (données journalières). Une position prise avant " +
+                "l'ouverture se valorise à la prochaine séance. Frais de courtage simulés selon le profil " +
+                "choisi dans les Réglages. Aucun argent réel, aucun lien avec Boursorama.",
             style = MaterialTheme.typography.labelSmall,
         )
     }
 
     sellTarget?.let { pos ->
-        val price = enriched[pos.ticker]?.first ?: pos.avgPrice
+        val price = enriched[pos.ticker]?.price ?: pos.avgPrice
         SellPaperDialog(
             ticker = pos.ticker,
             name = nameOf(pos.ticker),
@@ -423,7 +435,8 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
 }
 
 @Composable
-private fun PaperPositionCard(p: PaperPositionEntity, name: String, current: Double, advice: ExitAdvice?, onSell: () -> Unit) {
+private fun PaperPositionCard(p: PaperPositionEntity, name: String, today: String, info: PriceInfo?, onSell: () -> Unit) {
+    val current = info?.price ?: p.avgPrice
     val plPct = if (p.avgPrice > 0) (current - p.avgPrice) / p.avgPrice * 100 else 0.0
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -437,12 +450,25 @@ private fun PaperPositionCard(p: PaperPositionEntity, name: String, current: Dou
                     Text("%+.1f %%".format(plPct), color = if (plPct >= 0) BullGreen else BearRed)
                 }
             }
-            advice?.let { a ->
+            StalePriceNote(info?.date, today)
+            info?.advice?.let { a ->
                 val (label, color) = adviceLabel(a.action)
                 Text("Conseil : $label", color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
             }
             OutlinedButton(onClick = onSell, modifier = Modifier.fillMaxWidth()) { Text("Vendre") }
         }
+    }
+}
+
+/** Avertit quand le cours affiché date d'une séance antérieure (position prise avant l'ouverture). */
+@Composable
+private fun StalePriceNote(priceDate: String?, today: String) {
+    if (priceDate != null && priceDate < today) {
+        Text(
+            "Cours de clôture du $priceDate — valorisation mise à jour à la prochaine séance.",
+            style = MaterialTheme.typography.labelSmall,
+            color = AMBER,
+        )
     }
 }
 
