@@ -247,6 +247,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
             name = nameOf(v.position.ticker),
             heldQty = v.position.quantity,
             price = v.price ?: v.position.avgPrice,
+            avgPrice = v.position.avgPrice,
             onDismiss = { sellPos = null },
             onConfirm = { qty, price, fees ->
                 scope.launch { container.portfolioRepository.recordTransaction(v.position.ticker, "SELL", qty, price, fees, LocalDate.now().toString()) }
@@ -424,6 +425,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
             name = nameOf(pos.ticker),
             heldQty = pos.quantity,
             price = price,
+            avgPrice = pos.avgPrice,
             feeProfile = container.settings.activeFeeProfile(),
             onDismiss = { sellTarget = null },
             onConfirm = { qty ->
@@ -483,6 +485,7 @@ private fun SellRealDialog(
     name: String,
     heldQty: Double,
     price: Double,
+    avgPrice: Double,
     onDismiss: () -> Unit,
     onConfirm: (qty: Double, price: Double, fees: Double) -> Unit,
 ) {
@@ -494,6 +497,9 @@ private fun SellRealDialog(
     val px = priceText.replace(',', '.').toDoubleOrNull() ?: price
     val fees = feesText.replace(',', '.').toDoubleOrNull() ?: 0.0
     val proceeds = qty * px - fees
+    val costBasis = qty * avgPrice
+    val margin = proceeds - costBasis
+    val marginPct = if (costBasis > 0) margin / costBasis * 100 else 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -515,6 +521,7 @@ private fun SellRealDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                 HorizontalDivider()
                 LineItem("Produit net estimé", "%.2f €".format(proceeds))
+                MarginLine(avgPrice, margin, marginPct)
             }
         },
     )
@@ -527,6 +534,7 @@ private fun SellPaperDialog(
     name: String,
     heldQty: Double,
     price: Double,
+    avgPrice: Double,
     feeProfile: FeeProfile,
     onDismiss: () -> Unit,
     onConfirm: (Int) -> Unit,
@@ -537,6 +545,9 @@ private fun SellPaperDialog(
     val gross = qty * price
     val fee = feeProfile.feeFor(gross)
     val net = gross - fee
+    val costBasis = qty * avgPrice
+    val margin = net - costBasis
+    val marginPct = if (costBasis > 0) margin / costBasis * 100 else 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -556,6 +567,7 @@ private fun SellPaperDialog(
                 LineItem("Montant brut", "%.2f €".format(gross))
                 LineItem("Frais (${feeProfile.label})", "-%.2f €".format(fee))
                 LineItem("Produit net estimé", "%.2f €".format(net))
+                MarginLine(avgPrice, margin, marginPct)
             }
         },
     )
@@ -713,6 +725,15 @@ private fun LineItem(label: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Text(value, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** Ligne de plus/moins-value réalisée par rapport au prix de revient (PRU). */
+@Composable
+private fun MarginLine(avgPrice: Double, margin: Double, marginPct: Double) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Marge vs achat (PRU ${"%.2f €".format(avgPrice)})", style = MaterialTheme.typography.bodyMedium)
+        Text("%+.2f € (%+.1f %%)".format(margin, marginPct), fontWeight = FontWeight.Bold, color = if (margin >= 0) BullGreen else BearRed)
     }
 }
 
