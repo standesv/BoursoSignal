@@ -2,15 +2,9 @@ package bzh.dargio.boursosignal.domain.signals
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import kotlin.math.abs
 
 /**
  * Contrôle qualité des données d'une valeur, AVANT toute analyse (§ fiabilité).
- *
- * L'univers « Euronext Paris élargi » contient beaucoup de petites valeurs dont
- * les données gratuites sont lacunaires. Ce filtre écarte celles qui ne sont pas
- * exploitables : historique trop court, données périmées, illiquidité, anomalies
- * de cours. Seules les valeurs qui passent sont analysées et affichées.
  */
 object DataQuality {
 
@@ -29,7 +23,6 @@ object DataQuality {
             reasons += "Historique insuffisant (${candles.size} < $minHistory)"
         }
 
-        // Intégrité : prix positifs et cohérents (high >= low, corps dans la mèche).
         val eps = 1e-6
         val anomaly = candles.any { c ->
             c.open <= 0 || c.high <= 0 || c.low <= 0 || c.close <= 0 ||
@@ -39,7 +32,6 @@ object DataQuality {
         }
         if (anomaly) reasons += "Anomalies de cours détectées"
 
-        // Liquidité : capital échangé moyen (cours × volume) sur les 20 dernières séances.
         if (candles.isNotEmpty()) {
             val window = candles.takeLast(20)
             val avgTurnover = window.sumOf { it.close * it.volume } / window.size
@@ -48,7 +40,6 @@ object DataQuality {
             }
         }
 
-        // Fraîcheur : la dernière bougie ne doit pas être périmée.
         if (referenceDate != null && candles.isNotEmpty()) {
             runCatching {
                 val last = LocalDate.parse(candles.last().date)
@@ -78,13 +69,18 @@ data class Opportunity(
 )
 
 /**
- * Évalue la TENDANCE ACTUELLE d'une valeur (continue), pas seulement l'événement
- * de croisement. Donne toujours une lecture exploitable (Achat / Surveiller /
- * Éviter / Neutre) à partir de la configuration des indicateurs au dernier cours.
+ * Évalue la TENDANCE ACTUELLE d'une valeur (continue). Donne toujours une lecture
+ * exploitable (Achat / Surveiller / Éviter / Neutre). Si `benchCloses` est fourni
+ * (cours du CAC 40), la force relative au marché est prise en compte.
  */
 object StanceEvaluator {
 
-    fun evaluate(ticker: String, candles: List<Candle>, config: StrategyConfig = StrategyConfig()): Opportunity {
+    fun evaluate(
+        ticker: String,
+        candles: List<Candle>,
+        config: StrategyConfig = StrategyConfig(),
+        benchCloses: List<Double>? = null,
+    ): Opportunity {
         val last = candles.lastOrNull()
             ?: return Opportunity(ticker, Stance.NEUTRAL, 0.0, listOf("Pas de donnée"), 0.0, "")
 
@@ -98,7 +94,6 @@ object StanceEvaluator {
         }
 
         val reasons = mutableListOf<String>()
-        // La direction de la tendance domine, ajustée par sa force et la zone RSI.
         val fastAboveSlow = (emaFast - emaSlow) / emaSlow
         var score = when {
             emaFast > emaSlow -> 0.55
@@ -123,14 +118,32 @@ object StanceEvaluator {
             else -> reasons += "RSI sain (${fmt(rsi)})"
         }
 
-        // Momentum MACD : confirme ou nuance la dynamique.
         val macd = if (closes.size > 26) Indicators.macd(closes).macd.lastOrNull { it != null } else null
         if (macd != null) {
             if (macd > 0) { score += 0.1; reasons += "MACD positif (dynamique favorable)" }
             else { score -= 0.1; reasons += "MACD négatif (dynamique faible)" }
         }
 
-        // Risque (volatilité) : pénalise légèrement les valeurs très volatiles.
+        // Force de tendance : une tendance marquée (ADX élevé) renforce la lecture directionnelle.
+        val adx = Indicators.adx(candles, config.adxPeriod).lastOrNull { it != null }
+        if (adx != null && adx >= config.adxThreshold) {
+            val boost = if (emaFast >= emaSlow) 0.1 else -0.1
+            score += boost
+            reasons += "Tendance marquée (ADX ${fmt(adx)})"
+        }
+
+        // Force relative au CAC 40 : privilégier les valeurs qui battent le marché.
+        if (benchCloses != null) {
+            val rs = Indicators.relativeStrengthPct(closes, benchCloses)
+            if (rs != null) {
+                when {
+                    rs > 2.0 -> { score += 0.15; reasons += "Surperforme le CAC 40 (+${fmt(rs)} pts / ~3 mois)" }
+                    rs < -2.0 -> { score -= 0.15; reasons += "Sous-performe le CAC 40 (${fmt(rs)} pts / ~3 mois)" }
+                    else -> reasons += "En ligne avec le CAC 40"
+                }
+            }
+        }
+
         val risk = Analyzer.riskFrom(Analyzer.annualVolatilityPct(closes))
         if (risk == RiskLevel.HIGH) { score -= 0.1; reasons += "Volatilité élevée (risque accru)" }
 
@@ -151,6 +164,7 @@ object StanceEvaluator {
 /**
  * Scanner de marché : analyse tout un univers, écarte les valeurs aux données non
  * fiables (via [DataQuality]) et renvoie les opportunités classées par score.
+ * `benchmark` (cours du CAC 40) alimente la force relative, si fourni.
  */
 object MarketScanner {
 
@@ -160,11 +174,14 @@ object MarketScanner {
         referenceDate: String? = null,
         minHistory: Int = 120,
         minAvgTurnover: Double = 200_000.0,
-    ): List<Opportunity> =
-        data.entries
+        benchmark: List<Candle>? = null,
+    ): List<Opportunity> {
+        val benchCloses = benchmark?.closes()
+        return data.entries
             .filter { (_, candles) ->
                 DataQuality.check(candles, referenceDate, minHistory, minAvgTurnover = minAvgTurnover).ok
             }
-            .map { (ticker, candles) -> StanceEvaluator.evaluate(ticker, candles, config) }
+            .map { (ticker, candles) -> StanceEvaluator.evaluate(ticker, candles, config, benchCloses) }
             .sortedByDescending { it.score }
+    }
 }

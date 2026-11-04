@@ -14,7 +14,8 @@ import java.time.LocalDate
 /**
  * Scanne tout l'univers Euronext Paris : rafraîchit les cours, écarte les valeurs
  * aux données non fiables (contrôle qualité) et publie un classement
- * d'opportunités. Le résultat alimente le fil d'opportunités de l'accueil.
+ * d'opportunités. Récupère aussi le CAC 40 (^FCHI) comme référence pour la force
+ * relative. Le résultat alimente le fil d'opportunités de l'accueil.
  */
 class MarketScannerService(
     private val universe: UniverseProvider,
@@ -42,6 +43,9 @@ class MarketScannerService(
             val entries = universe.load()
             _names.value = entries.associate { it.ticker to it.name }
 
+            // Référence de marché pour la force relative (CAC 40).
+            val benchmark = market.refresh(BENCHMARK_TICKER).getOrNull()
+
             val data = LinkedHashMap<String, List<Candle>>()
             val today = LocalDate.now().toString()
             for (entry in entries) {
@@ -49,9 +53,13 @@ class MarketScannerService(
                 if (!candles.isNullOrEmpty()) data[entry.ticker] = candles
                 delay(120) // cadence douce pour ménager la source gratuite
             }
-            _opportunities.value = MarketScanner.scan(data, config, referenceDate = today)
+            _opportunities.value = MarketScanner.scan(data, config, referenceDate = today, benchmark = benchmark)
         } finally {
             _scanning.value = false
         }
+    }
+
+    private companion object {
+        const val BENCHMARK_TICKER = "^FCHI" // CAC 40 sur Yahoo Finance
     }
 }

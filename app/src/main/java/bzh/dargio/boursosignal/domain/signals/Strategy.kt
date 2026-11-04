@@ -5,12 +5,6 @@ enum class SignalType { BUY, SELL, NONE }
 
 /**
  * Résultat de l'évaluation d'une stratégie sur une valeur à une date donnée.
- *
- * @param type    sens du signal (achat, vente ou neutre)
- * @param score   score pondéré total des conditions satisfaites
- * @param reasons libellés des règles ayant contribué (pour une alerte argumentée)
- * @param date    date de la bougie évaluée
- * @param price   cours de clôture déclencheur
  */
 data class SignalResult(
     val type: SignalType,
@@ -21,17 +15,14 @@ data class SignalResult(
 )
 
 /**
- * Paramètres d'une stratégie. Tout est réglable par l'utilisateur (§F8 du cahier
- * des charges) ; ces valeurs par défaut correspondent à la configuration décrite
- * au §5.
+ * Paramètres d'une stratégie. Valeurs par défaut = configuration du §5, enrichie
+ * de filtres et signaux complémentaires (tendance de fond, force de tendance ADX,
+ * croisement MACD, bandes de Bollinger, stop de volatilité ATR).
  *
  * Les poids servent au scoring : un signal n'est émis que si la somme des poids
- * des conditions satisfaites atteint le seuil correspondant. Le seuil de vente
- * (1,5) est volontairement au niveau du seuil d'achat : une seule condition
- * « molle » (ex. simple reflux du RSI sous 70, ou croisement EMA isolé) ne suffit
- * donc plus à déclencher une vente — il en faut deux. Les règles de gestion du
- * risque (stop-loss / take-profit) ajoutent `sellThreshold` et restent, elles,
- * toujours déclenchantes.
+ * des conditions satisfaites atteint le seuil. Le seuil de vente est au niveau de
+ * l'achat : une seule condition « molle » ne suffit pas. Les règles de risque
+ * (stop-loss / take-profit / stop ATR) restent toujours déclenchantes.
  */
 data class StrategyConfig(
     val emaFastPeriod: Int = 20,
@@ -54,8 +45,29 @@ data class StrategyConfig(
     // Seuils de déclenchement (vente aussi exigeante que l'achat : 2 conditions).
     val buyThreshold: Double = 1.5,
     val sellThreshold: Double = 1.5,
+
+    // --- Filtres et signaux complémentaires (activés quand l'historique suffit) ---
+    // Filtre de régime : pas d'achat sous la moyenne mobile longue (tendance de fond).
+    val longTrendPeriod: Int = 200,
+    val useTrendFilter: Boolean = true,
+    // Force de tendance (ADX) : confirme un signal directionnel quand la tendance est marquée.
+    val adxPeriod: Int = 14,
+    val adxThreshold: Double = 20.0,
+    val weightAdxConfirm: Double = 0.5,
+    // Croisement MACD (ligne MACD vs ligne signal).
+    val weightMacdCrossUp: Double = 0.5,
+    val weightMacdCrossDown: Double = 0.5,
+    // Bandes de Bollinger : rebond sous la bande basse / excès au-dessus de la bande haute.
+    val bollingerPeriod: Int = 20,
+    val bollingerMult: Double = 2.0,
+    val weightBollingerReboundUp: Double = 0.5,
+    val weightBollingerOverbought: Double = 0.5,
+    // Stop de volatilité : vendre si la perte dépasse `atrStopMultiple` × ATR.
+    val atrPeriod: Int = 14,
+    val atrStopMultiple: Double = 2.5,
+    val useAtrStop: Boolean = true,
 ) {
-    /** Nombre minimal de bougies pour que tous les indicateurs soient définis. */
+    /** Nombre minimal de bougies pour que les indicateurs de base soient définis. */
     val minHistory: Int
         get() = maxOf(emaSlowPeriod, rsiPeriod + 1, volumeAvgPeriod) + 1
 }

@@ -3,26 +3,18 @@ package bzh.dargio.boursosignal.domain.signals
 /**
  * Moteur de détection des signaux d'achat / vente (§5 du cahier des charges).
  *
- * Kotlin pur, sans dépendance Android : testable sur la JVM. À partir d'une
- * série de bougies et d'une configuration de stratégie, il calcule les
- * indicateurs, évalue des règles pondérées et produit un [SignalResult] pour la
- * dernière bougie.
+ * Kotlin pur, sans dépendance Android : testable sur la JVM. À partir d'une série
+ * de bougies et d'une configuration, il calcule les indicateurs, évalue des règles
+ * pondérées et produit un [SignalResult] pour la dernière bougie.
  *
- * Le scoring additionne les poids des conditions satisfaites :
- *   S = Σ wᵢ · cᵢ   →   signal si S ≥ seuil
- * Quand achat et vente dépassent tous deux leur seuil, le score le plus élevé
- * l'emporte (sécurité : on ne renvoie jamais deux sens contradictoires).
+ * Signaux et filtres combinés : croisement EMA, sortie de survente/surachat RSI,
+ * confirmation de volume, croisement MACD, bandes de Bollinger, force de tendance
+ * (ADX), filtre de tendance de fond (MM longue) et gestion du risque (stop-loss /
+ * take-profit / stop de volatilité ATR). Les signaux complémentaires ne s'activent
+ * que lorsque l'historique est suffisant (sinon ils sont simplement ignorés).
  */
 class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
 
-    /**
-     * Évalue la stratégie sur la dernière bougie de la série.
-     *
-     * @param candles historique de bougies, de la plus ancienne à la plus récente
-     * @param avgEntryPrice prix de revient de la position détenue (pour stop-loss /
-     *   take-profit), ou null si aucune position
-     * @return le signal de la dernière bougie, ou NONE si l'historique est insuffisant
-     */
     fun evaluate(candles: List<Candle>, avgEntryPrice: Double? = null): SignalResult {
         val last = candles.lastOrNull()
             ?: return SignalResult(SignalType.NONE, 0.0, emptyList(), "", 0.0)
@@ -76,12 +68,52 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
             sellReasons += "RSI redescend sous le surachat (${fmt(rsiPrev)}→${fmt(rsiNow)})"
         }
 
+        // --- Croisement MACD (confirmation de dynamique) ---
+        val macd = Indicators.macd(closes)
+        val mL0 = macd.macd.getOrNull(i - 1); val mL1 = macd.macd.getOrNull(i)
+        val mS0 = macd.signal.getOrNull(i - 1); val mS1 = macd.signal.getOrNull(i)
+        if (mL0 != null && mL1 != null && mS0 != null && mS1 != null) {
+            if (mL0 <= mS0 && mL1 > mS1) {
+                buyScore += config.weightMacdCrossUp
+                buyReasons += "MACD croise au-dessus de sa ligne de signal"
+            }
+            if (mL0 >= mS0 && mL1 < mS1) {
+                sellScore += config.weightMacdCrossDown
+                sellReasons += "MACD croise sous sa ligne de signal"
+            }
+        }
+
+        // --- Bandes de Bollinger (excès de cours) ---
+        val boll = Indicators.bollinger(closes, config.bollingerPeriod, config.bollingerMult)
+        boll.lower.getOrNull(i)?.let { lower ->
+            if (last.close < lower) {
+                buyScore += config.weightBollingerReboundUp
+                buyReasons += "Cours sous la bande de Bollinger basse (survente)"
+            }
+        }
+        boll.upper.getOrNull(i)?.let { upper ->
+            if (last.close > upper) {
+                sellScore += config.weightBollingerOverbought
+                sellReasons += "Cours au-dessus de la bande de Bollinger haute (excès)"
+            }
+        }
+
+        // --- Force de tendance (ADX) : confirme la direction quand la tendance est marquée ---
+        val adx = Indicators.adx(candles, config.adxPeriod).lastOrNull { it != null }
+        if (adx != null && adx >= config.adxThreshold) {
+            val ef = emaFast[i]; val es = emaSlow[i]
+            if (ef != null && es != null) {
+                if (ef > es) { buyScore += config.weightAdxConfirm; buyReasons += "Tendance forte confirmée (ADX ${fmt(adx)})" }
+                else if (ef < es) { sellScore += config.weightAdxConfirm; sellReasons += "Tendance baissière forte (ADX ${fmt(adx)})" }
+            }
+        }
+
         // --- Gestion du risque (prioritaire sur une vente de stratégie) ---
         if (avgEntryPrice != null && avgEntryPrice > 0.0) {
             val change = (last.close - avgEntryPrice) / avgEntryPrice
             config.stopLossPct?.let { sl ->
                 if (change <= sl) {
-                    sellScore += config.sellThreshold // garantit le déclenchement
+                    sellScore += config.sellThreshold
                     sellReasons += "Stop-loss atteint (${fmtPct(change)})"
                 }
             }
@@ -91,9 +123,21 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
                     sellReasons += "Take-profit atteint (${fmtPct(change)})"
                 }
             }
+            // Stop de volatilité : perte supérieure à atrStopMultiple × ATR.
+            if (config.useAtrStop) {
+                val atr = Indicators.atr(candles, config.atrPeriod).lastOrNull { it != null }
+                if (atr != null && atr > 0.0 && last.close <= avgEntryPrice - config.atrStopMultiple * atr) {
+                    sellScore += config.sellThreshold
+                    sellReasons += "Stop de volatilité (ATR) atteint"
+                }
+            }
         }
 
-        val buy = buyScore >= config.buyThreshold
+        // --- Filtre de tendance de fond : pas d'achat sous la moyenne mobile longue ---
+        val longMa = if (config.useTrendFilter) Indicators.sma(closes, config.longTrendPeriod).lastOrNull { it != null } else null
+        val belowLongTrend = longMa != null && last.close < longMa
+
+        val buy = buyScore >= config.buyThreshold && !belowLongTrend
         val sell = sellScore >= config.sellThreshold
 
         return when {
@@ -108,7 +152,6 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
         }
     }
 
-    /** Vrai si `a` passe au-dessus de `b` entre i-1 et i (croisement haussier). */
     private fun crossedUp(a: List<Double?>, b: List<Double?>, i: Int): Boolean {
         val a0 = a.getOrNull(i - 1); val a1 = a[i]
         val b0 = b.getOrNull(i - 1); val b1 = b[i]
@@ -116,7 +159,6 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
         return a0 <= b0 && a1 > b1
     }
 
-    /** Vrai si `a` passe sous `b` entre i-1 et i (croisement baissier). */
     private fun crossedDown(a: List<Double?>, b: List<Double?>, i: Int): Boolean {
         val a0 = a.getOrNull(i - 1); val a1 = a[i]
         val b0 = b.getOrNull(i - 1); val b1 = b[i]

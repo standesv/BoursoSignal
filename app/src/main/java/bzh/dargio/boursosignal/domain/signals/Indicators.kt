@@ -1,5 +1,7 @@
 package bzh.dargio.boursosignal.domain.signals
 
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
@@ -36,7 +38,6 @@ object Indicators {
         val out = arrayOfNulls<Double>(values.size)
         if (values.size < period) return out.toList()
         val k = 2.0 / (period + 1)
-        // Amorçage : SMA des `period` premières valeurs, placée à l'indice period-1.
         var seed = 0.0
         for (i in 0 until period) seed += values[i]
         var prev = seed / period
@@ -51,7 +52,6 @@ object Indicators {
     /**
      * RSI (Relative Strength Index) selon la méthode de lissage de Wilder.
      * `period` = 14 par défaut côté stratégie. RSI ∈ [0, 100].
-     * Série strictement croissante → 100 ; strictement décroissante → 0.
      */
     fun rsi(values: List<Double>, period: Int = 14): List<Double?> {
         require(period > 0) { "La période doit être strictement positive" }
@@ -104,7 +104,6 @@ object Indicators {
             val f = emaFast[i]; val s = emaSlow[i]
             if (f != null && s != null) f - s else null
         }
-        // EMA de la ligne MACD, calculée uniquement sur sa partie définie, puis réalignée.
         val firstDefined = macdLine.indexOfFirst { it != null }
         val signalLine = arrayOfNulls<Double>(values.size)
         if (firstDefined >= 0) {
@@ -147,5 +146,100 @@ object Indicators {
             lower[i] = mid - mult * sd
         }
         return Bollinger(middle, upper.toList(), lower.toList())
+    }
+
+    /**
+     * ATR (Average True Range) de Wilder, mesure de volatilité absolue.
+     * Sert à poser un stop adapté à l'agitation réelle de la valeur.
+     */
+    fun atr(candles: List<Candle>, period: Int = 14): List<Double?> {
+        require(period > 0)
+        val n = candles.size
+        val out = arrayOfNulls<Double>(n)
+        if (n <= period) return out.toList()
+        val tr = DoubleArray(n)
+        tr[0] = candles[0].high - candles[0].low
+        for (i in 1 until n) {
+            val h = candles[i].high; val l = candles[i].low; val pc = candles[i - 1].close
+            tr[i] = max(h - l, max(abs(h - pc), abs(l - pc)))
+        }
+        var sum = 0.0
+        for (i in 1..period) sum += tr[i]
+        var atr = sum / period
+        out[period] = atr
+        for (i in period + 1 until n) {
+            atr = (atr * (period - 1) + tr[i]) / period
+            out[i] = atr
+        }
+        return out.toList()
+    }
+
+    /**
+     * ADX (Average Directional Index) de Wilder : force de la tendance, ∈ [0, 100].
+     * Au-dessus de ~20-25, la tendance est suffisamment marquée pour être suivie ;
+     * en dessous, le marché est sans direction (croisements peu fiables).
+     */
+    fun adx(candles: List<Candle>, period: Int = 14): List<Double?> {
+        require(period > 0)
+        val n = candles.size
+        val out = arrayOfNulls<Double>(n)
+        if (n <= 2 * period) return out.toList()
+
+        val plusDM = DoubleArray(n)
+        val minusDM = DoubleArray(n)
+        val tr = DoubleArray(n)
+        for (i in 1 until n) {
+            val up = candles[i].high - candles[i - 1].high
+            val down = candles[i - 1].low - candles[i].low
+            plusDM[i] = if (up > down && up > 0) up else 0.0
+            minusDM[i] = if (down > up && down > 0) down else 0.0
+            val h = candles[i].high; val l = candles[i].low; val pc = candles[i - 1].close
+            tr[i] = max(h - l, max(abs(h - pc), abs(l - pc)))
+        }
+
+        var trS = 0.0; var pS = 0.0; var mS = 0.0
+        for (i in 1..period) { trS += tr[i]; pS += plusDM[i]; mS += minusDM[i] }
+        val dx = DoubleArray(n)
+        dx[period] = dxOf(trS, pS, mS)
+        for (i in period + 1 until n) {
+            trS = trS - trS / period + tr[i]
+            pS = pS - pS / period + plusDM[i]
+            mS = mS - mS / period + minusDM[i]
+            dx[i] = dxOf(trS, pS, mS)
+        }
+
+        // Premier ADX = moyenne des `period` premières valeurs de DX.
+        var sum = 0.0
+        for (i in period + 1..2 * period) sum += dx[i]
+        var adx = sum / period
+        out[2 * period] = adx
+        for (i in 2 * period + 1 until n) {
+            adx = (adx * (period - 1) + dx[i]) / period
+            out[i] = adx
+        }
+        return out.toList()
+    }
+
+    private fun dxOf(trSum: Double, pSum: Double, mSum: Double): Double {
+        if (trSum == 0.0) return 0.0
+        val pDI = 100.0 * pSum / trSum
+        val mDI = 100.0 * mSum / trSum
+        val denom = pDI + mDI
+        return if (denom == 0.0) 0.0 else 100.0 * abs(pDI - mDI) / denom
+    }
+
+    /**
+     * Force relative : surperformance (en points de %) d'une valeur par rapport à
+     * un indice de référence (ex. CAC 40) sur `window` séances. > 0 = la valeur
+     * fait mieux que le marché. null si l'historique est insuffisant.
+     */
+    fun relativeStrengthPct(stockCloses: List<Double>, benchCloses: List<Double>, window: Int = 63): Double? {
+        if (stockCloses.size <= window || benchCloses.size <= window) return null
+        val sNow = stockCloses.last(); val sThen = stockCloses[stockCloses.size - 1 - window]
+        val bNow = benchCloses.last(); val bThen = benchCloses[benchCloses.size - 1 - window]
+        if (sThen <= 0 || bThen <= 0) return null
+        val sRet = (sNow - sThen) / sThen
+        val bRet = (bNow - bThen) / bThen
+        return (sRet - bRet) * 100.0
     }
 }
