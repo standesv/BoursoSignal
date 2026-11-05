@@ -56,13 +56,16 @@ import bzh.dargio.boursosignal.domain.signals.ExitAction
 import bzh.dargio.boursosignal.domain.signals.ExitAdvice
 import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
 import bzh.dargio.boursosignal.domain.signals.FeeProfile
+import bzh.dargio.boursosignal.domain.signals.MarketClock
 import bzh.dargio.boursosignal.domain.signals.NewsAnalyzer
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 
 private val AMBER = Color(0xFFF59E0B)
@@ -144,6 +147,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
     val cashRow by container.portfolioRepository.observeCash().collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     val today = remember { parisToday() }
+    val now = remember { LocalDateTime.now(ZoneId.of("Europe/Paris")) }
 
     val views by produceState(initialValue = emptyList<PositionView>(), positions) {
         val cfg = container.strategyRepository.activeConfig()
@@ -216,6 +220,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
                             fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium,
                         )
                         if (t.fees > 0.0) Text("Frais ${"%.2f".format(t.fees)} €", style = MaterialTheme.typography.bodySmall)
+                        PendingOpenNote(t.date, null, now)
                     }
                     IconButton(onClick = { deleteTx = t }) { Icon(Icons.Filled.Delete, "Supprimer la ligne") }
                 }
@@ -327,6 +332,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
     val trades by paper.observeTrades().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val today = remember { parisToday() }
+    val now = remember { LocalDateTime.now(ZoneId.of("Europe/Paris")) }
 
     val acc = account
     if (acc == null || !acc.enabled) {
@@ -405,6 +411,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
                         }
                     }
                     if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall)
+                    PendingOpenNote(t.date, t.createdAt, now)
                 }
             }
         }
@@ -468,6 +475,29 @@ private fun StalePriceNote(priceDate: String?, today: String) {
     if (priceDate != null && priceDate < today) {
         Text(
             "Cours de clôture du $priceDate — valorisation mise à jour à la prochaine séance.",
+            style = MaterialTheme.typography.labelSmall,
+            color = AMBER,
+        )
+    }
+}
+
+/**
+ * Indique qu'une opération passée **hors séance** sera prise en compte au prochain
+ * fixing d'ouverture (un ordre saisi marché fermé s'exécute à l'ouverture, pas au
+ * cours de la veille).
+ */
+@Composable
+private fun PendingOpenNote(dateIso: String, createdAtMillis: Long?, now: LocalDateTime) {
+    val pending = remember(dateIso, createdAtMillis, now) {
+        runCatching {
+            val d = LocalDate.parse(dateIso)
+            val at = createdAtMillis?.let { Instant.ofEpochMilli(it).atZone(ZoneId.of("Europe/Paris")).toLocalDateTime() }
+            MarketClock.pendingNextOpen(d, at, now)
+        }.getOrNull()
+    }
+    pending?.let {
+        Text(
+            "Hors séance — effectif au prochain fixing d'ouverture (${"%02d/%02d à 9h00".format(it.dayOfMonth, it.monthValue)}).",
             style = MaterialTheme.typography.labelSmall,
             color = AMBER,
         )
