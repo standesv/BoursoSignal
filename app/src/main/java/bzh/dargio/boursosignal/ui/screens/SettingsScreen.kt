@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -56,6 +57,12 @@ fun SettingsScreen(container: AppContainer) {
     var interval by remember { mutableStateOf(settings.refreshIntervalHours.toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled) }
     var saved by remember { mutableStateOf(false) }
+
+    // Planification des notifications.
+    var daysMask by remember { mutableStateOf(settings.notifyDaysMask) }
+    var startHour by remember { mutableStateOf(settings.notifyStartHour.toString()) }
+    var endHour by remember { mutableStateOf(settings.notifyEndHour.toString()) }
+    var scheduleSaved by remember { mutableStateOf(false) }
 
     // Mode test (paper trading).
     val paperAccount by container.paperRepository.observeAccount().collectAsState(initial = null)
@@ -103,14 +110,58 @@ fun SettingsScreen(container: AppContainer) {
             ) { Text("Enregistrer") }
             if (saved) Text("Réglages enregistrés.", style = MaterialTheme.typography.bodySmall)
 
+            // ---- Planification des notifications ----
+            HorizontalDivider()
+            Text("Planification des notifications", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Choisis les jours et la plage horaire où tu acceptes d'être notifié. Les signaux " +
+                    "détectés en dehors sont reportés et délivrés au prochain créneau — rien n'est perdu.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("L", "M", "M", "J", "V", "S", "D").forEachIndexed { idx, lbl ->
+                    val bit = 1 shl idx
+                    FilterChip(
+                        selected = daysMask and bit != 0,
+                        onClick = { daysMask = daysMask xor bit },
+                        label = { Text(lbl) },
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = startHour,
+                    onValueChange = { startHour = it.filter { c -> c.isDigit() }.take(2) },
+                    label = { Text("Début (h)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = endHour,
+                    onValueChange = { endHour = it.filter { c -> c.isDigit() }.take(2) },
+                    label = { Text("Fin (h)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Button(
+                onClick = {
+                    settings.notifyDaysMask = daysMask
+                    settings.notifyStartHour = startHour.toIntOrNull()?.coerceIn(0, 23) ?: 9
+                    settings.notifyEndHour = endHour.toIntOrNull()?.coerceIn(0, 24) ?: 20
+                    RefreshWorker.scheduleNotify(context, settings.notifyStartHour)
+                    scheduleSaved = true
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Enregistrer la planification") }
+            if (scheduleSaved) Text("Planification enregistrée. Notifications ${settings.notifyStartHour}h–${settings.notifyEndHour}h.", style = MaterialTheme.typography.bodySmall)
+
             // ---- Notifications en arrière-plan ----
             HorizontalDivider()
             Text("Notifications en arrière-plan", fontWeight = FontWeight.SemiBold)
             Text(
-                "Pour recevoir les alertes (signaux, ventes auto du mode test) même quand l'app est " +
-                    "fermée, autorise son exécution en arrière-plan. Android bride sinon les vérifications " +
-                    "quand le téléphone est en veille. Les cours étant journaliers, une vérification toutes " +
-                    "les quelques heures suffit (règle l'intervalle ci-dessus).",
+                "Pour recevoir les alertes même quand l'app est fermée, autorise son exécution en " +
+                    "arrière-plan. Android bride sinon les vérifications quand le téléphone est en veille.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             OutlinedButton(

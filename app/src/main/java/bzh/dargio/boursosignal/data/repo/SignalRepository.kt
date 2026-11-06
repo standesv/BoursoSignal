@@ -12,4 +12,7 @@ class SignalRepository(private val dao: SignalDao) {
     suspend fun latestFor(ticker: String): SignalEntity? = dao.latestFor(ticker)
     suspend fun insert(signal: SignalEntity): Long = dao.insert(signal)
     suspend fun setHandled(id: Long, handled: Boolean) = dao.setHandled(id, handled)
+
+    /** Signaux non encore notifiés (y compris ceux reportés depuis une période hors plage). */
+    suspend fun unhandled(): List<SignalEntity> = dao.unhandled()
 }

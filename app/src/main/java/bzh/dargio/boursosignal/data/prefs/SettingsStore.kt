@@ -6,14 +6,12 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import bzh.dargio.boursosignal.domain.signals.FeeProfile
 import bzh.dargio.boursosignal.domain.signals.Fees
+import bzh.dargio.boursosignal.domain.signals.NotifyWindow
+import java.time.LocalDateTime
 
 /**
  * Réglages de l'application, stockés de façon chiffrée via
  * EncryptedSharedPreferences + Android Keystore (§11).
- *
- * La source de cours est Yahoo Finance (gratuit, couvre Euronext Paris) ; il n'y
- * a plus de mode démo ni de clé API à gérer. Inclut la configuration des profils
- * de frais de courtage simulés (§F8).
  */
 class SettingsStore(context: Context) {
 
@@ -40,14 +38,31 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIF, true)
         set(value) = prefs.edit().putBoolean(KEY_NOTIF, value).apply()
 
-    // --- Frais de courtage simulés (mode test) -------------------------------
+    // --- Planification des notifications (jours + plage horaire) ---
 
-    /** Clé du profil de frais actif (défaut : Découverte). */
+    /** Jours autorisés (masque de bits : bit 0 = lundi … bit 6 = dimanche). */
+    var notifyDaysMask: Int
+        get() = prefs.getInt(KEY_NOTIFY_DAYS, NotifyWindow.DEFAULT_DAYS)
+        set(value) = prefs.edit().putInt(KEY_NOTIFY_DAYS, value).apply()
+
+    var notifyStartHour: Int
+        get() = prefs.getInt(KEY_NOTIFY_START, NotifyWindow.DEFAULT_START)
+        set(value) = prefs.edit().putInt(KEY_NOTIFY_START, value.coerceIn(0, 23)).apply()
+
+    var notifyEndHour: Int
+        get() = prefs.getInt(KEY_NOTIFY_END, NotifyWindow.DEFAULT_END)
+        set(value) = prefs.edit().putInt(KEY_NOTIFY_END, value.coerceIn(0, 24)).apply()
+
+    /** Les notifications sont-elles autorisées à cet instant (jour + heure) ? */
+    fun isWithinNotifyWindow(now: LocalDateTime): Boolean =
+        NotifyWindow.isWithin(notifyDaysMask, notifyStartHour, notifyEndHour, now)
+
+    // --- Frais de courtage simulés (mode test) ---
+
     var paperFeeProfileKey: String
         get() = prefs.getString(KEY_FEE_PROFILE, Fees.DECOUVERTE.key) ?: Fees.DECOUVERTE.key
         set(value) = prefs.edit().putString(KEY_FEE_PROFILE, value).apply()
 
-    /** Profil de frais pour une clé donnée, avec les éventuelles valeurs personnalisées. */
     fun feeProfile(key: String): FeeProfile {
         val def = Fees.byKey(key)
         val pct = prefs.getFloat("fee_${key}_pct", def.percent.toFloat()).toDouble()
@@ -55,13 +70,10 @@ class SettingsStore(context: Context) {
         return def.copy(percent = pct, minFee = min)
     }
 
-    /** Les trois profils (Découverte/Classic/Trader) avec leurs valeurs effectives. */
     fun allFeeProfiles(): List<FeeProfile> = Fees.DEFAULTS.map { feeProfile(it.key) }
 
-    /** Profil de frais actuellement sélectionné. */
     fun activeFeeProfile(): FeeProfile = feeProfile(paperFeeProfileKey)
 
-    /** Enregistre les valeurs personnalisées (pourcentage + frais minimum) d'un profil. */
     fun saveFeeProfile(profile: FeeProfile) {
         prefs.edit()
             .putFloat("fee_${profile.key}_pct", profile.percent.toFloat())
@@ -72,6 +84,9 @@ class SettingsStore(context: Context) {
     private companion object {
         const val KEY_INTERVAL = "refresh_interval_hours"
         const val KEY_NOTIF = "notifications_enabled"
+        const val KEY_NOTIFY_DAYS = "notify_days_mask"
+        const val KEY_NOTIFY_START = "notify_start_hour"
+        const val KEY_NOTIFY_END = "notify_end_hour"
         const val KEY_FEE_PROFILE = "paper_fee_profile_key"
     }
 }

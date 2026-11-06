@@ -69,7 +69,6 @@ interface PortfolioDao {
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteTransaction(id: Long)
 
-    // Liquidités (espèces non investies).
     @Query("SELECT * FROM portfolio_cash WHERE id = 0")
     fun observeCash(): Flow<PortfolioCashEntity?>
 
@@ -90,6 +89,9 @@ interface SignalDao {
 
     @Query("SELECT * FROM signals WHERE ticker = :ticker ORDER BY createdAt DESC LIMIT 1")
     suspend fun latestFor(ticker: String): SignalEntity?
+
+    @Query("SELECT * FROM signals WHERE handled = 0 ORDER BY createdAt ASC")
+    suspend fun unhandled(): List<SignalEntity>
 
     @Insert
     suspend fun insert(signal: SignalEntity): Long

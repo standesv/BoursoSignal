@@ -9,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/** Point d'entrée de l'application : initialise l'injection et la tâche de fond. */
+/** Point d'entrée de l'application : initialise l'injection et les tâches de fond. */
 class BoursoSignalApp : Application() {
 
     lateinit var container: AppContainer
@@ -26,5 +26,6 @@ class BoursoSignalApp : Application() {
 
         RefreshWorker.schedule(this, container.settings.refreshIntervalHours)
         RefreshWorker.scheduleMarketOpen(this)
+        RefreshWorker.scheduleNotify(this, container.settings.notifyStartHour)
     }
 }
