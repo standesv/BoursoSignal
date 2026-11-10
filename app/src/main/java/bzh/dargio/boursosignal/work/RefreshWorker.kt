@@ -66,20 +66,18 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     )
                 }
 
-                // Conseil de vente sur les positions réelles détenues.
+                // Conseils sur les positions réelles détenues : vendre OU alléger.
                 val cfg = container.strategyRepository.activeConfig()
                 container.portfolioRepository.observePositions().first().forEach { p ->
                     val candles = container.marketRepository.refresh(p.ticker).getOrNull()
                         ?: container.marketRepository.cachedCandles(p.ticker)
                     if (candles.isNotEmpty()) {
                         val advice = ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg)
-                        if (advice.action == ExitAction.SELL) {
-                            Notifications.notifyExit(
-                                applicationContext,
-                                (p.ticker.hashCode() and 0xffff) + 1,
-                                p.ticker,
-                                advice.reasons.firstOrNull() ?: "Conditions de vente réunies",
-                            )
+                        val reason = advice.reasons.firstOrNull() ?: "Conditions réunies"
+                        when (advice.action) {
+                            ExitAction.SELL -> Notifications.notifyExit(applicationContext, (p.ticker.hashCode() and 0xffff) + 1, p.ticker, reason)
+                            ExitAction.TRIM -> Notifications.notifyTrim(applicationContext, (p.ticker.hashCode() and 0xffff) + 4, p.ticker, reason)
+                            ExitAction.HOLD -> {}
                         }
                     }
                 }

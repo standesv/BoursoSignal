@@ -15,4 +15,8 @@ class SignalRepository(private val dao: SignalDao) {
 
     /** Signaux non encore notifiés (y compris ceux reportés depuis une période hors plage). */
     suspend fun unhandled(): List<SignalEntity> = dao.unhandled()
+
+    /** Suppression d'une alerte, ou de toutes. */
+    suspend fun delete(id: Long) = dao.delete(id)
+    suspend fun clearAll() = dao.clearAll()
 }

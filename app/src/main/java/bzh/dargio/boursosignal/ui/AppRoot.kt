@@ -90,7 +90,9 @@ fun AppRoot(container: AppContainer) {
                     onSearch = { navController.navigate("search") },
                 )
             }
-            composable(Dest.Portfolio.route) { PortfolioScreen(container) }
+            composable(Dest.Portfolio.route) {
+                PortfolioScreen(container, onOpen = { navController.navigate("detail/$it") })
+            }
             composable(Dest.Alerts.route) { AlertsScreen(container, onOpen = { navController.navigate("detail/$it") }) }
             composable(Dest.Settings.route) { SettingsScreen(container) }
             composable("search") {

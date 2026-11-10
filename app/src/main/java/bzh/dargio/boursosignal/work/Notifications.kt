@@ -18,7 +18,7 @@ object Notifications {
 
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL_ID, "Signaux de marché", NotificationManager.IMPORTANCE_HIGH)
-            .apply { description = "Alertes d'achat, de vente et conseils sur vos positions" }
+            .apply { description = "Alertes d'achat, de vente, d'allègement et conseils sur vos positions" }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
@@ -30,6 +30,11 @@ object Notifications {
     /** Conseil de vente sur une position détenue. */
     fun notifyExit(context: Context, id: Int, ticker: String, reason: String) {
         push(context, id, "Vendre $ticker ?", reason)
+    }
+
+    /** Conseil d'allègement (prendre une partie des gains) sur une position détenue. */
+    fun notifyTrim(context: Context, id: Int, ticker: String, reason: String) {
+        push(context, id, "Alléger $ticker ?", "$reason — vends ~la moitié pour sécuriser une partie des gains.")
     }
 
     /** Ordre fictif exécuté automatiquement en mode test. */

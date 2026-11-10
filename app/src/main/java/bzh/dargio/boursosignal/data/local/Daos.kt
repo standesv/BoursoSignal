@@ -98,6 +98,12 @@ interface SignalDao {
 
     @Query("UPDATE signals SET handled = :handled WHERE id = :id")
     suspend fun setHandled(id: Long, handled: Boolean)
+
+    @Query("DELETE FROM signals WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM signals")
+    suspend fun clearAll()
 }
 
 @Dao

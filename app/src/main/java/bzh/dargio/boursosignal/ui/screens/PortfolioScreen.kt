@@ -82,7 +82,7 @@ private fun parisToday(): String = LocalDate.now(ZoneId.of("Europe/Paris")).toSt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PortfolioScreen(container: AppContainer) {
+fun PortfolioScreen(container: AppContainer, onOpen: (String) -> Unit) {
     var mode by remember { mutableStateOf(PortfolioMode.REAL) }
     var showAdd by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -118,8 +118,8 @@ fun PortfolioScreen(container: AppContainer) {
             }
 
             when (mode) {
-                PortfolioMode.REAL -> RealPortfolio(container, nameOf)
-                PortfolioMode.TEST -> TestPortfolio(container, nameOf)
+                PortfolioMode.REAL -> RealPortfolio(container, nameOf, onOpen)
+                PortfolioMode.TEST -> TestPortfolio(container, nameOf, onOpen)
             }
         }
     }
@@ -141,7 +141,7 @@ fun PortfolioScreen(container: AppContainer) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
+private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String, onOpen: (String) -> Unit) {
     val positions by container.portfolioRepository.observePositions().collectAsState(initial = emptyList())
     val transactions by container.portfolioRepository.observeTransactions().collectAsState(initial = emptyList())
     val cashRow by container.portfolioRepository.observeCash().collectAsState(initial = null)
@@ -201,6 +201,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
                 v = v,
                 today = today,
                 name = nameOf(v.position.ticker),
+                onOpen = { onOpen(v.position.ticker) },
                 onSell = { sellPos = v },
                 onEdit = { editPos = v.position },
                 onDelete = { deletePos = v.position },
@@ -290,11 +291,11 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String) {
 }
 
 @Composable
-private fun RealPositionCard(v: PositionView, today: String, name: String, onSell: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun RealPositionCard(v: PositionView, today: String, name: String, onOpen: () -> Unit, onSell: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     val p = v.position
     val cur = v.price ?: p.avgPrice
     val pnlPct = if (p.avgPrice > 0) (cur - p.avgPrice) / p.avgPrice * 100 else 0.0
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().clickable { onOpen() }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
@@ -310,6 +311,7 @@ private fun RealPositionCard(v: PositionView, today: String, name: String, onSel
             v.advice?.let { a ->
                 val (label, color) = adviceLabel(a.action)
                 Text("Conseil : $label", color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                adviceHint(a.action)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onSell, modifier = Modifier.weight(1f)) { Text("Vendre") }
@@ -325,7 +327,7 @@ private fun RealPositionCard(v: PositionView, today: String, name: String, onSel
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
+private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, onOpen: (String) -> Unit) {
     val paper = container.paperRepository
     val account by paper.observeAccount().collectAsState(initial = null)
     val positions by paper.observePositions().collectAsState(initial = emptyList())
@@ -389,7 +391,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
             Text("Aucune position ouverte. Le mode auto agit sur signal, ou achète depuis la fiche d'une valeur.",
                 style = MaterialTheme.typography.bodySmall)
         } else positions.forEach { p ->
-            PaperPositionCard(p, nameOf(p.ticker), today, enriched[p.ticker], onSell = { sellTarget = p })
+            PaperPositionCard(p, nameOf(p.ticker), today, enriched[p.ticker], onOpen = { onOpen(p.ticker) }, onSell = { sellTarget = p })
         }
 
         Text("Journal des opérations fictives", fontWeight = FontWeight.SemiBold)
@@ -444,10 +446,10 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String) {
 }
 
 @Composable
-private fun PaperPositionCard(p: PaperPositionEntity, name: String, today: String, info: PriceInfo?, onSell: () -> Unit) {
+private fun PaperPositionCard(p: PaperPositionEntity, name: String, today: String, info: PriceInfo?, onOpen: () -> Unit, onSell: () -> Unit) {
     val current = info?.price ?: p.avgPrice
     val plPct = if (p.avgPrice > 0) (current - p.avgPrice) / p.avgPrice * 100 else 0.0
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth().clickable { onOpen() }) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
@@ -463,6 +465,7 @@ private fun PaperPositionCard(p: PaperPositionEntity, name: String, today: Strin
             info?.advice?.let { a ->
                 val (label, color) = adviceLabel(a.action)
                 Text("Conseil : $label", color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                adviceHint(a.action)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             OutlinedButton(onClick = onSell, modifier = Modifier.fillMaxWidth()) { Text("Vendre") }
         }
@@ -776,4 +779,11 @@ private fun adviceLabel(a: ExitAction): Pair<String, Color> = when (a) {
     ExitAction.SELL -> "Vendre" to BearRed
     ExitAction.TRIM -> "Alléger" to AMBER
     ExitAction.HOLD -> "Conserver" to BullGreen
+}
+
+/** Explication concrète de chaque conseil (surtout « Alléger », souvent ambigu). */
+private fun adviceHint(a: ExitAction): String? = when (a) {
+    ExitAction.TRIM -> "Vends ~la moitié pour sécuriser une partie des gains ; garde le reste tant que la tendance reste porteuse, et envisage de renforcer si la valeur reflue puis repart."
+    ExitAction.SELL -> "Solde la position : les conditions de sortie sont réunies."
+    ExitAction.HOLD -> null
 }
