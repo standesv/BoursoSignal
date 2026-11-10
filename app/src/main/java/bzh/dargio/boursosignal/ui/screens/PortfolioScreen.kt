@@ -156,7 +156,8 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String, o
                 ?: container.marketRepository.cachedCandles(p.ticker)
             val news = container.newsProvider.forQuery(nameOf(p.ticker)).getOrDefault(emptyList())
             val sentiment = NewsAnalyzer.sentimentOf(news.map { it.title }).first
-            val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg, sentiment) else null
+            val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg, sentiment,
+                lastTrimPrice = container.settings.trimAnchor(p.ticker)).also { container.settings.setTrimAnchor(p.ticker, it.trimAnchor) } else null
             PositionView(p, candles.lastOrNull()?.close, candles.lastOrNull()?.date, advice)
         }.sortedBy { priority(it.advice?.action) }
     }
@@ -357,7 +358,8 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, o
                 ?: container.marketRepository.cachedCandles(p.ticker)
             val price = candles.lastOrNull()?.close ?: p.avgPrice
             val date = candles.lastOrNull()?.date
-            val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg) else null
+            val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg,
+                lastTrimPrice = container.settings.trimAnchor(p.ticker)).also { container.settings.setTrimAnchor(p.ticker, it.trimAnchor) } else null
             map[p.ticker] = PriceInfo(price, date, advice)
         }
         value = map

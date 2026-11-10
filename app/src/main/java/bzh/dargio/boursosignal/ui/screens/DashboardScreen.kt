@@ -97,7 +97,12 @@ fun DashboardScreen(
             val held = heldByTicker[opp.ticker] ?: return@forEach
             val candles = container.marketRepository.cachedCandles(opp.ticker)
                 .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
-            if (candles.isNotEmpty()) map[opp.ticker] = ExitAdvisor.advise(opp.ticker, candles, held.avgPrice, cfg)
+            if (candles.isNotEmpty()) {
+                val advice = ExitAdvisor.advise(opp.ticker, candles, held.avgPrice, cfg,
+                    lastTrimPrice = container.settings.trimAnchor(opp.ticker))
+                container.settings.setTrimAnchor(opp.ticker, advice.trimAnchor)
+                map[opp.ticker] = advice
+            }
         }
         value = map
     }

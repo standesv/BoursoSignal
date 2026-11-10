@@ -36,8 +36,8 @@ data class StrategyConfig(
     val weightEmaCrossDown: Double = 1.0,
     val weightRsiOverbought: Double = 1.0,
     // Gestion du risque (optionnelle). null = désactivé.
-    val stopLossPct: Double? = -0.08,
-    val takeProfitPct: Double? = 0.15,
+    val stopLossPct: Double? = -0.12,
+    val takeProfitPct: Double? = null,
     // Seuils de déclenchement (vente aussi exigeante que l'achat : 2 conditions).
     val buyThreshold: Double = 1.5,
     val sellThreshold: Double = 1.5,
@@ -63,6 +63,10 @@ data class StrategyConfig(
     val useTrailingStop: Boolean = true,
     val trailingAtrMultiple: Double = 3.0,
     val trailingPeriod: Int = 60,
+    // Anti-répétition de l'allègement : une fois « Alléger » conseillé, on reste sur
+    // « Conserver » tant que le cours n'a pas repris au moins trimReArmPct au-dessus
+    // du cours du dernier allègement (nouvelle jambe de hausse).
+    val trimReArmPct: Double = 0.10,
 ) {
     /** Nombre minimal de bougies pour que les indicateurs de base soient définis. */
     val minHistory: Int

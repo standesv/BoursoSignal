@@ -10,6 +10,8 @@ data class ExitAdvice(
     val plPct: Double,     // plus/moins-value vs prix de revient, en %
     val price: Double,
     val reasons: List<String>,
+    /** Cours à mémoriser comme ancre d'allègement (null = aucune / à effacer). */
+    val trimAnchor: Double? = null,
 )
 
 /**
@@ -27,6 +29,7 @@ object ExitAdvisor {
         avgPrice: Double,
         config: StrategyConfig = StrategyConfig(),
         news: NewsSentiment = NewsSentiment.NEUTRAL,
+        lastTrimPrice: Double? = null,
     ): ExitAdvice {
         val last = candles.lastOrNull()
             ?: return ExitAdvice(ticker, ExitAction.HOLD, 0.0, 0.0, listOf("Pas de donnée"))
@@ -63,14 +66,34 @@ object ExitAdvisor {
         // Actualité récente négative.
         if (news == NewsSentiment.NEGATIVE) { sell += 1; reasons += "Actualité récente négative" }
 
-        val action = when {
+        val baseAction = when {
             sell >= 2 -> ExitAction.SELL
             sell == 1 -> ExitAction.TRIM
             else -> ExitAction.HOLD
         }
-        if (action == ExitAction.HOLD) reasons += "Configuration encore favorable — conserver"
 
-        return ExitAdvice(ticker, action, plPct, price, reasons)
+        // Anti-répétition de l'allègement : si on a déjà conseillé d'alléger cette valeur
+        // plus bas, on repasse sur « Conserver » tant que le cours n'a pas repris au moins
+        // trimReArmPct au-dessus du cours de ce dernier allègement (nouvelle jambe de hausse).
+        val reArmed = lastTrimPrice == null || price > lastTrimPrice * (1 + config.trimReArmPct)
+        val action = if (baseAction == ExitAction.TRIM && !reArmed) {
+            reasons += "Déjà allégé plus bas — on conserve le reste tant que la hausse " +
+                "ne repart pas d'au moins ${(config.trimReArmPct * 100).toInt()} %"
+            ExitAction.HOLD
+        } else baseAction
+
+        if (action == ExitAction.HOLD && baseAction == ExitAction.HOLD)
+            reasons += "Configuration encore favorable — conserver"
+
+        // Ancre à persister par l'appelant : cours du jour si on vient de conseiller
+        // d'alléger ; effacée si on vend (sortie) ; inchangée sinon.
+        val newAnchor = when (action) {
+            ExitAction.TRIM -> price
+            ExitAction.SELL -> null
+            ExitAction.HOLD -> lastTrimPrice
+        }
+
+        return ExitAdvice(ticker, action, plPct, price, reasons, newAnchor)
     }
 
     private fun fmt(v: Double): String = "${if (v >= 0) "+" else ""}${(v * 10).toInt() / 10.0}"

@@ -1,5 +1,6 @@
 package bzh.dargio.boursosignal.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,7 +43,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BacktestLabScreen(container: AppContainer, onBack: () -> Unit) {
+fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<LabResult?>(null) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -61,9 +62,11 @@ fun BacktestLabScreen(container: AppContainer, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Mesure objectivement ta stratégie sur tout l'univers : pour chaque valeur, on compare " +
-                    "la performance de la stratégie à celle d'un simple achat-conservation sur l'historique. " +
-                    "Lance d'abord un scan depuis l'onglet Idées pour disposer des données.",
+                "Cet outil teste ta stratégie sur tout l'univers, valeur par valeur, à partir des données en cache. " +
+                    "Pour chaque valeur il compare deux scénarios sur l'historique : d'un côté ta stratégie " +
+                    "(achats et ventes aux signaux), de l'autre un simple achat au début puis conservation " +
+                    "jusqu'à aujourd'hui, sans rien faire. Lance d'abord un scan depuis l'onglet Idées pour " +
+                    "disposer des données.",
                 style = MaterialTheme.typography.bodyMedium,
             )
 
@@ -112,17 +115,29 @@ fun BacktestLabScreen(container: AppContainer, onBack: () -> Unit) {
                         )
                         Text(
                             if (r.avgStrategyPct >= r.avgBuyHoldPct)
-                                "En moyenne, ta stratégie apporte un gain par rapport à l'achat-conservation."
+                                "En moyenne, ta stratégie gagne plus qu'un simple achat-conservation sur la période."
                             else
-                                "En moyenne, ta stratégie fait moins bien qu'un simple achat-conservation — il vaut mieux l'ajuster.",
+                                "En moyenne, ta stratégie gagne moins qu'un achat-conservation. C'est fréquent et pas forcément un défaut : sa force est surtout défensive — elle sort avant les fortes baisses. Le détail ci-dessous, trié par écart décroissant, montre en haut les valeurs où elle t'a évité le plus de pertes.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "Comment lire : « Stratégie » = gain/perte en suivant les signaux ; " +
+                                "« Achat-cons. » = gain/perte si tu avais seulement gardé la valeur ; " +
+                                "« écart » = différence (positif = la stratégie a fait mieux).",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
 
-                Text("Détail par valeur (meilleur écart d'abord)", fontWeight = FontWeight.SemiBold)
+                Text("Détail par valeur — performances passées", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Ce n'est pas une liste d'achat : ce sont des résultats historiques. Touche une valeur " +
+                        "pour ouvrir sa fiche et voir le conseil du jour. Les idées d'achat du moment sont " +
+                        "dans l'onglet Idées.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 r.perTicker.forEach { t ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.fillMaxWidth().clickable { onOpen(t.ticker) }) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) {
                                 Text(names[t.ticker] ?: t.ticker, fontWeight = FontWeight.Medium)

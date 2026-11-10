@@ -102,7 +102,7 @@ fun AppRoot(container: AppContainer) {
                 SearchScreen(container = container, onBack = { navController.popBackStack() }, onOpen = { navController.navigate("detail/$it") })
             }
             composable("backtestlab") {
-                BacktestLabScreen(container, onBack = { navController.popBackStack() })
+                BacktestLabScreen(container, onOpen = { navController.navigate("detail/$it") }, onBack = { navController.popBackStack() })
             }
             composable("detail/{ticker}") { entry ->
                 val ticker = entry.arguments?.getString("ticker").orEmpty()

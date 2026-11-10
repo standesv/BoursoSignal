@@ -81,6 +81,17 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
+    /** Cours du dernier conseil « Alléger » pour une valeur (null = aucun). */
+    fun trimAnchor(ticker: String): Double? =
+        prefs.getFloat("trim_anchor_$ticker", Float.NaN).let { if (it.isNaN()) null else it.toDouble() }
+
+    /** Mémorise (ou efface si null) le cours du dernier allègement conseillé. */
+    fun setTrimAnchor(ticker: String, price: Double?) {
+        prefs.edit().apply {
+            if (price == null) remove("trim_anchor_$ticker") else putFloat("trim_anchor_$ticker", price.toFloat())
+        }.apply()
+    }
+
     private companion object {
         const val KEY_INTERVAL = "refresh_interval_hours"
         const val KEY_NOTIF = "notifications_enabled"

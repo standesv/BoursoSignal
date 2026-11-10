@@ -72,7 +72,9 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     val candles = container.marketRepository.refresh(p.ticker).getOrNull()
                         ?: container.marketRepository.cachedCandles(p.ticker)
                     if (candles.isNotEmpty()) {
-                        val advice = ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg)
+                        val advice = ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg,
+                            lastTrimPrice = container.settings.trimAnchor(p.ticker))
+                        container.settings.setTrimAnchor(p.ticker, advice.trimAnchor)
                         val reason = advice.reasons.firstOrNull() ?: "Conditions réunies"
                         when (advice.action) {
                             ExitAction.SELL -> Notifications.notifyExit(applicationContext, (p.ticker.hashCode() and 0xffff) + 1, p.ticker, reason)

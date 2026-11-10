@@ -89,8 +89,8 @@ data class StrategyEntity(
     val weightVolumeConfirm: Double = 0.5,
     val weightEmaCrossDown: Double = 1.0,
     val weightRsiOverbought: Double = 1.0,
-    val stopLossPct: Double? = -0.08,
-    val takeProfitPct: Double? = 0.15,
+    val stopLossPct: Double? = -0.12,
+    val takeProfitPct: Double? = null,
     val buyThreshold: Double = 1.5,
     val sellThreshold: Double = 1.5,
 )
