@@ -17,12 +17,8 @@ data class SignalResult(
 /**
  * Paramètres d'une stratégie. Valeurs par défaut = configuration du §5, enrichie
  * de filtres et signaux complémentaires (tendance de fond, force de tendance ADX,
- * croisement MACD, bandes de Bollinger, stop de volatilité ATR).
- *
- * Les poids servent au scoring : un signal n'est émis que si la somme des poids
- * des conditions satisfaites atteint le seuil. Le seuil de vente est au niveau de
- * l'achat : une seule condition « molle » ne suffit pas. Les règles de risque
- * (stop-loss / take-profit / stop ATR) restent toujours déclenchantes.
+ * croisement MACD, bandes de Bollinger) et d'une gestion du risque (stop-loss,
+ * take-profit, stop de volatilité ATR et stop suiveur).
  */
 data class StrategyConfig(
     val emaFastPeriod: Int = 20,
@@ -47,17 +43,13 @@ data class StrategyConfig(
     val sellThreshold: Double = 1.5,
 
     // --- Filtres et signaux complémentaires (activés quand l'historique suffit) ---
-    // Filtre de régime : pas d'achat sous la moyenne mobile longue (tendance de fond).
     val longTrendPeriod: Int = 200,
     val useTrendFilter: Boolean = true,
-    // Force de tendance (ADX) : confirme un signal directionnel quand la tendance est marquée.
     val adxPeriod: Int = 14,
     val adxThreshold: Double = 20.0,
     val weightAdxConfirm: Double = 0.5,
-    // Croisement MACD (ligne MACD vs ligne signal).
     val weightMacdCrossUp: Double = 0.5,
     val weightMacdCrossDown: Double = 0.5,
-    // Bandes de Bollinger : rebond sous la bande basse / excès au-dessus de la bande haute.
     val bollingerPeriod: Int = 20,
     val bollingerMult: Double = 2.0,
     val weightBollingerReboundUp: Double = 0.5,
@@ -66,6 +58,11 @@ data class StrategyConfig(
     val atrPeriod: Int = 14,
     val atrStopMultiple: Double = 2.5,
     val useAtrStop: Boolean = true,
+    // Stop suiveur : vendre si le cours reflue de `trailingAtrMultiple` × ATR sous
+    // son plus haut des `trailingPeriod` dernières séances (sécurise les gains).
+    val useTrailingStop: Boolean = true,
+    val trailingAtrMultiple: Double = 3.0,
+    val trailingPeriod: Int = 60,
 ) {
     /** Nombre minimal de bougies pour que les indicateurs de base soient définis. */
     val minHistory: Int

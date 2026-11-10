@@ -1,17 +1,13 @@
 package bzh.dargio.boursosignal.domain.signals
 
 /**
- * Moteur de détection des signaux d'achat / vente (§5 du cahier des charges).
- *
- * Kotlin pur, sans dépendance Android : testable sur la JVM. À partir d'une série
- * de bougies et d'une configuration, il calcule les indicateurs, évalue des règles
- * pondérées et produit un [SignalResult] pour la dernière bougie.
+ * Moteur de détection des signaux d'achat / vente (§5). Kotlin pur, testable.
  *
  * Signaux et filtres combinés : croisement EMA, sortie de survente/surachat RSI,
  * confirmation de volume, croisement MACD, bandes de Bollinger, force de tendance
- * (ADX), filtre de tendance de fond (MM longue) et gestion du risque (stop-loss /
- * take-profit / stop de volatilité ATR). Les signaux complémentaires ne s'activent
- * que lorsque l'historique est suffisant (sinon ils sont simplement ignorés).
+ * (ADX), filtre de tendance de fond (MM longue) et gestion du risque (stop-loss,
+ * take-profit, stop de volatilité ATR, stop suiveur). Les signaux complémentaires
+ * ne s'activent que lorsque l'historique est suffisant.
  */
 class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
 
@@ -68,7 +64,7 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
             sellReasons += "RSI redescend sous le surachat (${fmt(rsiPrev)}→${fmt(rsiNow)})"
         }
 
-        // --- Croisement MACD (confirmation de dynamique) ---
+        // --- Croisement MACD ---
         val macd = Indicators.macd(closes)
         val mL0 = macd.macd.getOrNull(i - 1); val mL1 = macd.macd.getOrNull(i)
         val mS0 = macd.signal.getOrNull(i - 1); val mS1 = macd.signal.getOrNull(i)
@@ -83,7 +79,7 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
             }
         }
 
-        // --- Bandes de Bollinger (excès de cours) ---
+        // --- Bandes de Bollinger ---
         val boll = Indicators.bollinger(closes, config.bollingerPeriod, config.bollingerMult)
         boll.lower.getOrNull(i)?.let { lower ->
             if (last.close < lower) {
@@ -98,7 +94,7 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
             }
         }
 
-        // --- Force de tendance (ADX) : confirme la direction quand la tendance est marquée ---
+        // --- Force de tendance (ADX) ---
         val adx = Indicators.adx(candles, config.adxPeriod).lastOrNull { it != null }
         if (adx != null && adx >= config.adxThreshold) {
             val ef = emaFast[i]; val es = emaSlow[i]
@@ -123,12 +119,17 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
                     sellReasons += "Take-profit atteint (${fmtPct(change)})"
                 }
             }
-            // Stop de volatilité : perte supérieure à atrStopMultiple × ATR.
-            if (config.useAtrStop) {
-                val atr = Indicators.atr(candles, config.atrPeriod).lastOrNull { it != null }
-                if (atr != null && atr > 0.0 && last.close <= avgEntryPrice - config.atrStopMultiple * atr) {
+            val atr = if (config.useAtrStop || config.useTrailingStop)
+                Indicators.atr(candles, config.atrPeriod).lastOrNull { it != null } else null
+            if (config.useAtrStop && atr != null && atr > 0.0 && last.close <= avgEntryPrice - config.atrStopMultiple * atr) {
+                sellScore += config.sellThreshold
+                sellReasons += "Stop de volatilité (ATR) atteint"
+            }
+            if (config.useTrailingStop && atr != null && atr > 0.0) {
+                val recentHigh = closes.takeLast(config.trailingPeriod).maxOrNull()
+                if (recentHigh != null && last.close <= recentHigh - config.trailingAtrMultiple * atr) {
                     sellScore += config.sellThreshold
-                    sellReasons += "Stop de volatilité (ATR) atteint"
+                    sellReasons += "Stop suiveur : repli depuis le plus haut récent (${fmt(recentHigh)})"
                 }
             }
         }

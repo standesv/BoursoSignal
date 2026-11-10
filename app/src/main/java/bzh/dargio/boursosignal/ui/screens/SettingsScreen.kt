@@ -49,7 +49,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(container: AppContainer) {
+fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
     val settings = container.settings
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -85,6 +85,17 @@ fun SettingsScreen(container: AppContainer) {
         ) {
             Text("Source de cours", fontWeight = FontWeight.SemiBold)
             Text("Yahoo Finance (gratuit, couvre Euronext Paris). Aucune clé requise.", style = MaterialTheme.typography.bodyMedium)
+
+            HorizontalDivider()
+            Text("Backtest", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Mesure ta stratégie sur tout l'univers : performance de la stratégie vs achat-conservation, " +
+                    "valeur par valeur. Pour régler ta stratégie sur des faits plutôt qu'au feeling.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            OutlinedButton(onClick = onBacktest, modifier = Modifier.fillMaxWidth()) {
+                Text("Tester la stratégie sur l'univers")
+            }
 
             HorizontalDivider()
             Text("Rafraîchissement", fontWeight = FontWeight.SemiBold)
