@@ -250,8 +250,10 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
             ) { Text("Tester les notifications") }
             testMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Text(
-                "Dernier scan en arrière-plan : ${formatScan(settings.lastScanAt)}. Scans automatiques vers " +
-                    "9h10 (ouverture) et 17h40 (après la clôture, quand la séance du jour est disponible). " +
+                "Dernière vérification en arrière-plan : ${formatScan(settings.lastScanAt)}. Pendant la séance " +
+                    "(lun–ven, 9h–17h45), tes positions sont vérifiées toutes les 15 min environ ; analyse " +
+                    "complète vers 9h10 et 17h40. Si le téléphone est en veille profonde, Android peut " +
+                    "retarder ces vérifications : autorise l'exécution en arrière-plan ci-dessus. " +
                     "Un conseil de vente est notifié dès sa détection, même hors de ta plage (mais jamais la nuit), " +
                     "une seule fois. L'app ne vend jamais à ta place, ni en réel ni en test.",
                 style = MaterialTheme.typography.bodySmall,

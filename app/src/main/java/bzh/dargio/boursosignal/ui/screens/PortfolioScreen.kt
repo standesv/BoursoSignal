@@ -43,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,6 +53,7 @@ import bzh.dargio.boursosignal.data.local.PositionEntity
 import bzh.dargio.boursosignal.data.local.TransactionEntity
 import bzh.dargio.boursosignal.data.universe.UniverseEntry
 import bzh.dargio.boursosignal.di.AppContainer
+import bzh.dargio.boursosignal.work.PositionAlerts
 import bzh.dargio.boursosignal.domain.signals.ExitAction
 import bzh.dargio.boursosignal.domain.signals.ExitAdvice
 import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
@@ -149,16 +151,15 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String, o
     val today = remember { parisToday() }
     val now = remember { LocalDateTime.now(ZoneId.of("Europe/Paris")) }
 
+    val alertContext = LocalContext.current
     val views by produceState(initialValue = emptyList<PositionView>(), positions) {
         val cfg = container.strategyRepository.activeConfig()
         val regime = container.marketScannerService.regimeFromCache()?.regime
         value = positions.map { p ->
             val candles = container.marketRepository.refresh(p.ticker).getOrNull()
                 ?: container.marketRepository.cachedCandles(p.ticker)
-            val news = container.newsProvider.forQuery(nameOf(p.ticker)).getOrDefault(emptyList())
-            val sentiment = NewsAnalyzer.sentimentOf(news.map { it.title }).first
-            val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg, sentiment,
-                lastTrimPrice = container.settings.trimAnchor(p.ticker), regime = regime).also { container.settings.setTrimAnchor(p.ticker, it.trimAnchor) } else null
+            val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(container, p.ticker, p.avgPrice, candles, cfg, regime)
+                .also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, false, it, allowSell = true, allowTrim = true) } else null
             PositionView(p, candles.lastOrNull()?.close, candles.lastOrNull()?.date, advice)
         }.sortedBy { priority(it.advice?.action) }
     }
@@ -351,6 +352,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, o
         return
     }
 
+    val alertContext = LocalContext.current
     val enriched by produceState(initialValue = emptyMap<String, PriceInfo>(), positions) {
         val cfg = container.strategyRepository.activeConfig()
         val regime = container.marketScannerService.regimeFromCache()?.regime
@@ -360,8 +362,8 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, o
                 ?: container.marketRepository.cachedCandles(p.ticker)
             val price = candles.lastOrNull()?.close ?: p.avgPrice
             val date = candles.lastOrNull()?.date
-            val advice = if (candles.isNotEmpty()) ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg,
-                lastTrimPrice = container.settings.trimAnchor(p.ticker), regime = regime).also { container.settings.setTrimAnchor(p.ticker, it.trimAnchor) } else null
+            val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(container, p.ticker, p.avgPrice, candles, cfg, regime)
+                .also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, true, it, allowSell = true, allowTrim = true) } else null
             map[p.ticker] = PriceInfo(price, date, advice)
         }
         value = map

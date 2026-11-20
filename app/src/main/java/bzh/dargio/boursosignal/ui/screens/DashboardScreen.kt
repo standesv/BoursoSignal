@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,6 +56,7 @@ import bzh.dargio.boursosignal.domain.signals.RiskLevel
 import bzh.dargio.boursosignal.domain.signals.Stance
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
+import bzh.dargio.boursosignal.work.PositionAlerts
 
 private val AMBER = Color(0xFFF59E0B)
 private val GREY = Color(0xFF6B7280)
@@ -95,6 +97,7 @@ fun DashboardScreen(
     // Pour les valeurs détenues (réel ou test), conseil de gestion de position
     // (conserver/alléger/vendre) afin que l'avis des Idées soit cohérent avec le
     // portefeuille. Seules les valeurs détenues entraînent un calcul.
+    val alertContext = LocalContext.current
     val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, realPositions, paperPositions, regimeReading) {
         if (heldByTicker.isEmpty()) { value = emptyMap(); return@produceState }
         val cfg = container.strategyRepository.activeConfig()
@@ -104,9 +107,10 @@ fun DashboardScreen(
             val candles = container.marketRepository.cachedCandles(opp.ticker)
                 .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
             if (candles.isNotEmpty()) {
-                val advice = ExitAdvisor.advise(opp.ticker, candles, held.avgPrice, cfg,
-                    lastTrimPrice = container.settings.trimAnchor(opp.ticker), regime = regimeReading?.regime)
-                container.settings.setTrimAnchor(opp.ticker, advice.trimAnchor)
+                val advice = PositionAlerts.adviceFor(container, opp.ticker, held.avgPrice, candles, cfg, regimeReading?.regime)
+                // Ce qui est affiché est aussi notifié (une seule fois par changement d'avis).
+                PositionAlerts.notifyIfNew(alertContext, container, opp.ticker, held.source == "test", advice,
+                    allowSell = true, allowTrim = true)
                 map[opp.ticker] = advice
             }
         }

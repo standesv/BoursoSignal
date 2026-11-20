@@ -24,6 +24,16 @@ object MarketClock {
         return !t.isBefore(OPEN) && !t.isAfter(CLOSE)
     }
 
+    /**
+     * Période de surveillance rapprochée des positions : la séance, prolongée de
+     * 15 min après 17h30 pour capter le fixing de clôture (17h35).
+     */
+    fun isWatchTime(now: LocalDateTime): Boolean {
+        if (!isWeekday(now.dayOfWeek)) return false
+        val t = now.toLocalTime()
+        return !t.isBefore(OPEN) && t.isBefore(CLOSE.plusMinutes(16))
+    }
+
     /** Prochain fixing d'ouverture (9h00 d'un jour de Bourse) à partir de `now`. */
     fun nextOpen(now: LocalDateTime): LocalDateTime {
         var day = now.toLocalDate()

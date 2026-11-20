@@ -9,11 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import bzh.dargio.boursosignal.BoursoSignalApp
-import bzh.dargio.boursosignal.domain.signals.ExitAction
-import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
-import bzh.dargio.boursosignal.domain.signals.Regime
 import bzh.dargio.boursosignal.domain.signals.SignalType
-import kotlinx.coroutines.flow.first
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -39,11 +35,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
 
             // 2. Notifications.
             val now = LocalDateTime.now(ZoneId.of("Europe/Paris"))
-            val notifEnabled = container.settings.notificationsEnabled
-            val inWindow = notifEnabled && container.settings.isWithinNotifyWindow(now)
-            val cfg = container.strategyRepository.activeConfig()
-            val regimeReading = container.marketScannerService.regimeFromCache()
-            val regime = regimeReading?.regime
+            val inWindow = container.settings.notificationsEnabled && container.settings.isWithinNotifyWindow(now)
 
             // (a) Signaux de la watchlist + ordres fictifs : uniquement dans la plage autorisée.
             if (inWindow) {
@@ -71,78 +63,10 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                 }
             }
 
-            // (b) Conseils de sortie sur les positions détenues, RÉEL ET TEST. L'app ne vend
-            //     jamais à ta place : elle te prévient. Une alerte par changement d'avis.
-            //     - Vendre : envoyé dès la détection, même hors de ta plage, mais jamais la nuit
-            //       (22h–7h) : il est alors délivré au premier scan du matin.
-            //     - Alléger : respecte ta plage horaire.
-            val daytime = now.hour in 7..21
-
-            // Météo du marché : prévenir quand le CAC 40 se retourne (une alerte par changement).
-            if (regimeReading != null) {
-                val prev = container.settings.lastRegime?.let { runCatching { Regime.valueOf(it) }.getOrNull() }
-                val cur = regimeReading.regime
-                if (prev == null || !notifEnabled) {
-                    container.settings.lastRegime = cur.name // 1re lecture ou notifications coupées : mémoriser sans alerter
-                } else if (cur != prev) {
-                    val why = regimeReading.reasons.firstOrNull().orEmpty()
-                    val delivered = when {
-                        cur == Regime.RISK_OFF && (inWindow || daytime) -> {
-                            Notifications.notifyMarket(
-                                applicationContext, "Marché en repli : achats suspendus",
-                                "$why. Je ne propose plus de nouveaux achats et je surveille tes positions (alléger / vendre).",
-                            ); true
-                        }
-                        cur == Regime.CAUTION && inWindow -> {
-                            val improving = prev == Regime.RISK_OFF
-                            Notifications.notifyMarket(
-                                applicationContext,
-                                if (improving) "Marché en voie d'amélioration" else "Marché fragile : prudence",
-                                "$why. Seuls les achats les plus solides sont proposés.",
-                            ); true
-                        }
-                        cur == Regime.RISK_ON && inWindow -> {
-                            Notifications.notifyMarket(
-                                applicationContext, "Marché redevenu favorable",
-                                "Le CAC 40 s'est repris : les signaux d'achat sont de nouveau actifs.",
-                            ); true
-                        }
-                        else -> false
-                    }
-                    if (delivered) container.settings.lastRegime = cur.name
-                }
-            }
-            val held = mutableListOf<Triple<String, Double, Boolean>>()
-            container.portfolioRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, false) }
-            if (container.paperRepository.isEnabled()) {
-                container.paperRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, true) }
-            }
-            for ((ticker, avgPrice, isTest) in held) run {
-                val candles = container.marketRepository.refresh(ticker).getOrNull()
-                    ?: container.marketRepository.cachedCandles(ticker)
-                if (candles.isEmpty()) return@run
-                val advice = ExitAdvisor.advise(ticker, candles, avgPrice, cfg,
-                    lastTrimPrice = container.settings.trimAnchor(ticker), regime = regime)
-                container.settings.setTrimAnchor(ticker, advice.trimAnchor)
-                if (!notifEnabled) return@run
-                val dedupKey = if (isTest) "test:$ticker" else ticker
-                val label = if (isTest) " (portefeuille test)" else ""
-                val baseId = (ticker.hashCode() and 0xffff) + (if (isTest) 10 else 0)
-                val reason = advice.reasons.firstOrNull() ?: "Conditions réunies"
-                val already = container.settings.lastExitNotified(dedupKey)
-                val key = advice.action.name
-                when (advice.action) {
-                    ExitAction.SELL -> if (key != already && (inWindow || daytime)) {
-                        Notifications.notifyExit(applicationContext, baseId + 1, ticker, reason, label)
-                        container.settings.setLastExitNotified(dedupKey, key)
-                    }
-                    ExitAction.TRIM -> if (key != already && inWindow) {
-                        Notifications.notifyTrim(applicationContext, baseId + 4, ticker, reason, label)
-                        container.settings.setLastExitNotified(dedupKey, key)
-                    }
-                    ExitAction.HOLD -> container.settings.setLastExitNotified(dedupKey, null)
-                }
-            }
+            // (b) Météo du marché, puis conseils sur les positions détenues (réel + test) :
+            //     logique partagée avec la surveillance en séance et avec les écrans.
+            PositionAlerts.checkRegime(applicationContext, container, now, refreshIndex = false)
+            PositionAlerts.checkHeld(applicationContext, container, now)
 
             // 3. Preuve de bon fonctionnement : horodatage du dernier scan réussi.
             container.settings.lastScanAt = System.currentTimeMillis()

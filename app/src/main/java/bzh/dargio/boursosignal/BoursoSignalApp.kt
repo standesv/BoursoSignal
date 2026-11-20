@@ -3,6 +3,7 @@ package bzh.dargio.boursosignal
 import android.app.Application
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.work.Notifications
+import bzh.dargio.boursosignal.work.PositionWatchWorker
 import bzh.dargio.boursosignal.work.RefreshWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,7 @@ class BoursoSignalApp : Application() {
         RefreshWorker.schedule(this, container.settings.refreshIntervalHours)
         RefreshWorker.scheduleMarketOpen(this)
         RefreshWorker.scheduleMarketClose(this)
+        PositionWatchWorker.schedule(this) // surveillance des positions toutes les ~15 min en séance
         RefreshWorker.scheduleNotify(this, container.settings.notifyStartHour)
     }
 }
