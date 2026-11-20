@@ -37,6 +37,11 @@ object Notifications {
         push(context, id, "Alléger $ticker ?$label", "$reason — vends ~la moitié pour sécuriser une partie des gains.")
     }
 
+    /** Changement de météo du marché (CAC 40). */
+    fun notifyMarket(context: Context, title: String, body: String) {
+        push(context, 990002, title, body)
+    }
+
     /** Ordre fictif exécuté automatiquement en mode test. */
     fun notifyPaperTrade(context: Context, id: Int, ticker: String, name: String, type: String, qty: Int) {
         val sens = if (type == "BUY") "Achat" else "Vente"

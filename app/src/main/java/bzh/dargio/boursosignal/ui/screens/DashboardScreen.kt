@@ -49,6 +49,8 @@ import bzh.dargio.boursosignal.domain.signals.NewsSentiment
 import bzh.dargio.boursosignal.domain.signals.Opportunity
 import bzh.dargio.boursosignal.domain.signals.RecoTone
 import bzh.dargio.boursosignal.domain.signals.Recommender
+import bzh.dargio.boursosignal.domain.signals.Regime
+import bzh.dargio.boursosignal.domain.signals.RegimeReading
 import bzh.dargio.boursosignal.domain.signals.RiskLevel
 import bzh.dargio.boursosignal.domain.signals.Stance
 import bzh.dargio.boursosignal.ui.theme.BearRed
@@ -71,12 +73,16 @@ fun DashboardScreen(
     val scanner = container.marketScannerService
     val opportunities by scanner.opportunities.collectAsState()
     val scanning by scanner.scanning.collectAsState()
+    val regimeReading by scanner.regime.collectAsState()
     val realPositions by container.portfolioRepository.observePositions().collectAsState(initial = emptyList())
     val paperPositions by container.paperRepository.observePositions().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var added by remember { mutableStateOf(setOf<String>()) }
 
-    LaunchedEffect(Unit) { if (opportunities.isEmpty() && !scanning) scanner.scan() }
+    LaunchedEffect(Unit) {
+        if (scanner.regime.value == null) scanner.regimeFromCache()
+        if (opportunities.isEmpty() && !scanning) scanner.scan()
+    }
 
     // Valeurs détenues, réelles OU fictives. Le réel l'emporte si détenu dans les deux.
     val heldByTicker = remember(realPositions, paperPositions) {
@@ -89,7 +95,7 @@ fun DashboardScreen(
     // Pour les valeurs détenues (réel ou test), conseil de gestion de position
     // (conserver/alléger/vendre) afin que l'avis des Idées soit cohérent avec le
     // portefeuille. Seules les valeurs détenues entraînent un calcul.
-    val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, realPositions, paperPositions) {
+    val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, realPositions, paperPositions, regimeReading) {
         if (heldByTicker.isEmpty()) { value = emptyMap(); return@produceState }
         val cfg = container.strategyRepository.activeConfig()
         val map = mutableMapOf<String, ExitAdvice>()
@@ -99,7 +105,7 @@ fun DashboardScreen(
                 .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
             if (candles.isNotEmpty()) {
                 val advice = ExitAdvisor.advise(opp.ticker, candles, held.avgPrice, cfg,
-                    lastTrimPrice = container.settings.trimAnchor(opp.ticker))
+                    lastTrimPrice = container.settings.trimAnchor(opp.ticker), regime = regimeReading?.regime)
                 container.settings.setTrimAnchor(opp.ticker, advice.trimAnchor)
                 map[opp.ticker] = advice
             }
@@ -120,6 +126,7 @@ fun DashboardScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (scanning) LinearProgressIndicator(Modifier.fillMaxWidth())
+            regimeReading?.let { MarketRegimeBanner(it) }
 
             Card(Modifier.fillMaxWidth().padding(12.dp).clickable { onPaper() }) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -215,4 +222,26 @@ private fun toneColor(tone: RecoTone): Color = when (tone) {
 
 private fun riskColor(r: RiskLevel): Color = when (r) {
     RiskLevel.LOW -> BullGreen; RiskLevel.MEDIUM -> AMBER; RiskLevel.HIGH -> BearRed
+}
+
+/** Bandeau « météo du marché » (CAC 40) : explique pourquoi les achats sont actifs, restreints ou suspendus. */
+@Composable
+private fun MarketRegimeBanner(reading: RegimeReading) {
+    val color = when (reading.regime) {
+        Regime.RISK_ON -> BullGreen
+        Regime.CAUTION -> AMBER
+        Regime.RISK_OFF -> BearRed
+    }
+    val implication = when (reading.regime) {
+        Regime.RISK_ON -> "Les signaux d'achat sont actifs."
+        Regime.CAUTION -> "Prudence : seuls les achats les plus solides restent proposés."
+        Regime.RISK_OFF -> "Nouveaux achats suspendus. Je surveille tes positions et te préviens s'il faut alléger ou vendre."
+    }
+    Card(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("● ${reading.label} (CAC 40)", color = color, fontWeight = FontWeight.SemiBold)
+            Text(implication, style = MaterialTheme.typography.bodySmall)
+            reading.reasons.take(3).forEach { Text("· $it", style = MaterialTheme.typography.bodySmall, color = GREY) }
+        }
+    }
 }

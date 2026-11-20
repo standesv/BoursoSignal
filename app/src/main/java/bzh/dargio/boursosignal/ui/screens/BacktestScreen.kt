@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.BacktestResult
 import bzh.dargio.boursosignal.domain.signals.Backtester
+import bzh.dargio.boursosignal.domain.signals.MarketRegimeEvaluator
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +42,11 @@ fun BacktestScreen(container: AppContainer, ticker: String, onBack: () -> Unit) 
     val result by produceState<BacktestResult?>(initialValue = null, ticker) {
         val config = container.strategyRepository.activeConfig()
         val candles = container.marketRepository.cachedCandles(ticker)
-        value = withContext(Dispatchers.Default) { Backtester(config).run(candles) }
+        val index = container.marketRepository.cachedCandles(MarketRegimeEvaluator.INDEX_TICKER)
+        value = withContext(Dispatchers.Default) {
+            val regimes = if (index.size >= MarketRegimeEvaluator.MIN_HISTORY) MarketRegimeEvaluator.byDate(index) else null
+            Backtester(config).run(candles, regimes)
+        }
     }
 
     Scaffold(

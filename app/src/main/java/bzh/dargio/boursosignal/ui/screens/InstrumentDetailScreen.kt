@@ -94,7 +94,9 @@ fun InstrumentDetailScreen(
     val config by produceState(initialValue = StrategyConfig(), ticker) {
         value = container.strategyRepository.activeConfig()
         if (container.marketRepository.cachedCandles(ticker).isEmpty()) container.marketRepository.refresh(ticker)
+        if (container.marketScannerService.regime.value == null) container.marketScannerService.regimeFromCache()
     }
+    val regimeReading by container.marketScannerService.regime.collectAsState()
 
     val news by produceState(initialValue = emptyList<NewsItem>(), name) {
         value = container.newsProvider.forQuery(name).getOrDefault(emptyList())
@@ -104,7 +106,7 @@ fun InstrumentDetailScreen(
     val closes = candles.closes()
     val emaFast = if (closes.isNotEmpty()) Indicators.ema(closes, config.emaFastPeriod) else null
     val emaSlow = if (closes.isNotEmpty()) Indicators.ema(closes, config.emaSlowPeriod) else null
-    val opp = remember(candles, config) { if (candles.isNotEmpty()) StanceEvaluator.evaluate(ticker, candles, config) else null }
+    val opp = remember(candles, config, regimeReading) { if (candles.isNotEmpty()) StanceEvaluator.evaluate(ticker, candles, config, regime = regimeReading?.regime) else null }
     val report = remember(candles, config) { if (candles.isNotEmpty()) Analyzer.analyze(candles, config) else null }
 
     val price = candles.lastOrNull()?.close ?: 0.0
@@ -167,7 +169,7 @@ fun InstrumentDetailScreen(
 
             OutlinedButton(onClick = { onBacktest(ticker) }, modifier = Modifier.fillMaxWidth()) { Text("Backtester cette stratégie") }
             Button(
-                onClick = { scope.launch { val avg = container.portfolioRepository.position(ticker)?.avgPrice; manualResult = SignalEngine(config).evaluate(container.marketRepository.cachedCandles(ticker), avg) } },
+                onClick = { scope.launch { val avg = container.portfolioRepository.position(ticker)?.avgPrice; manualResult = SignalEngine(config).evaluate(container.marketRepository.cachedCandles(ticker), avg, regimeReading?.regime) } },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Évaluer maintenant") }
             manualResult?.let { r ->

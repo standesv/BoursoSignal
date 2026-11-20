@@ -6,6 +6,7 @@ import bzh.dargio.boursosignal.data.repo.PortfolioRepository
 import bzh.dargio.boursosignal.data.repo.SignalRepository
 import bzh.dargio.boursosignal.data.repo.StrategyRepository
 import bzh.dargio.boursosignal.data.repo.WatchlistRepository
+import bzh.dargio.boursosignal.domain.signals.MarketRegimeEvaluator
 import bzh.dargio.boursosignal.domain.signals.SignalEngine
 import bzh.dargio.boursosignal.domain.signals.SignalResult
 import bzh.dargio.boursosignal.domain.signals.SignalType
@@ -35,11 +36,16 @@ class SignalRefresher(
         val engine = SignalEngine(config)
         val emitted = mutableListOf<EmittedSignal>()
 
+        // Météo du marché (CAC 40) : pas de signal d'achat quand le marché casse.
+        val index = market.refresh(MarketRegimeEvaluator.INDEX_TICKER).getOrNull()
+            ?: market.cachedCandles(MarketRegimeEvaluator.INDEX_TICKER)
+        val regime = if (index.isNotEmpty()) MarketRegimeEvaluator.evaluate(index).regime else null
+
         for (instrument in watchlist.watchlist()) {
             val candles = market.refresh(instrument.ticker).getOrNull() ?: continue
             if (candles.isEmpty()) continue
             val avgEntry = portfolio.position(instrument.ticker)?.avgPrice
-            val result = engine.evaluate(candles, avgEntry)
+            val result = engine.evaluate(candles, avgEntry, regime)
             if (result.type == SignalType.NONE) continue
 
             // Déduplication : pas de ré-émission pour la même bougie et le même sens.

@@ -27,10 +27,20 @@ data class LabResult(
  */
 object BacktestLab {
 
-    fun run(data: Map<String, List<Candle>>, config: StrategyConfig = StrategyConfig()): LabResult {
+    /**
+     * @param index cours du CAC 40 : s'il est fourni, la météo du marché est rejouée
+     *              jour par jour (filtre d'achat), sans regarder le futur.
+     */
+    fun run(
+        data: Map<String, List<Candle>>,
+        config: StrategyConfig = StrategyConfig(),
+        index: List<Candle>? = null,
+    ): LabResult {
+        val regimes = index?.takeIf { it.size >= MarketRegimeEvaluator.MIN_HISTORY }
+            ?.let { MarketRegimeEvaluator.byDate(it) }
         val results = data.entries.mapNotNull { (ticker, candles) ->
             if (candles.size <= config.minHistory + 5) return@mapNotNull null
-            val r = Backtester(config).run(candles)
+            val r = Backtester(config).run(candles, regimes)
             LabTickerResult(ticker, r.totalReturnPct, r.buyHoldReturnPct, r.tradeCount)
         }
         val count = results.size

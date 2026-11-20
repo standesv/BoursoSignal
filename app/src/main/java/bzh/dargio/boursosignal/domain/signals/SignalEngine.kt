@@ -11,7 +11,10 @@ package bzh.dargio.boursosignal.domain.signals
  */
 class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
 
-    fun evaluate(candles: List<Candle>, avgEntryPrice: Double? = null): SignalResult {
+    /**
+     * @param regime météo du marché (CAC 40) à la date évaluée ; null = pas de filtre.
+     */
+    fun evaluate(candles: List<Candle>, avgEntryPrice: Double? = null, regime: Regime? = null): SignalResult {
         val last = candles.lastOrNull()
             ?: return SignalResult(SignalType.NONE, 0.0, emptyList(), "", 0.0)
 
@@ -138,7 +141,13 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
         val longMa = if (config.useTrendFilter) Indicators.sma(closes, config.longTrendPeriod).lastOrNull { it != null } else null
         val belowLongTrend = longMa != null && last.close < longMa
 
-        val buy = buyScore >= config.buyThreshold && !belowLongTrend
+        // --- Filtre « météo du marché » : pas d'achat quand le CAC 40 casse ---
+        val marketOff = config.useMarketFilter && regime == Regime.RISK_OFF
+        val marketFragile = config.useMarketFilter && regime == Regime.CAUTION
+        val requiredBuy = config.buyThreshold + if (marketFragile) config.cautionBuyExtra else 0.0
+
+        val buy = buyScore >= requiredBuy && !belowLongTrend && !marketOff
+        if (buy && marketFragile) buyReasons += "Marché fragile (CAC 40) : signal retenu car particulièrement solide"
         val sell = sellScore >= config.sellThreshold
 
         return when {

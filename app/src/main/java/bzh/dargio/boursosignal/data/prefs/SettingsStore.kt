@@ -86,6 +86,15 @@ class SettingsStore(context: Context) {
         get() = prefs.getLong(KEY_LAST_SCAN, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_SCAN, value).apply()
 
+    /** Dernière météo du marché notifiée (RISK_ON / CAUTION / RISK_OFF), null = jamais. */
+    var lastRegime: String?
+        get() = prefs.getString(KEY_LAST_REGIME, null)
+        set(value) {
+            val editor = prefs.edit()
+            if (value == null) editor.remove(KEY_LAST_REGIME) else editor.putString(KEY_LAST_REGIME, value)
+            editor.apply()
+        }
+
     /** Retuning unique de la stratégie (prop20) déjà appliqué aux installations existantes ? */
     var strategyRetunedV2: Boolean
         get() = prefs.getBoolean(KEY_RETUNED_V2, false)
@@ -119,5 +128,6 @@ class SettingsStore(context: Context) {
         const val KEY_FEE_PROFILE = "paper_fee_profile_key"
         const val KEY_LAST_SCAN = "last_scan_at"
         const val KEY_RETUNED_V2 = "strategy_retuned_v2"
+        const val KEY_LAST_REGIME = "last_regime"
     }
 }

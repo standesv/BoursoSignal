@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import bzh.dargio.boursosignal.BoursoSignalApp
 import bzh.dargio.boursosignal.domain.signals.ExitAction
 import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
+import bzh.dargio.boursosignal.domain.signals.Regime
 import bzh.dargio.boursosignal.domain.signals.SignalType
 import kotlinx.coroutines.flow.first
 import java.time.Duration
@@ -41,6 +42,8 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             val notifEnabled = container.settings.notificationsEnabled
             val inWindow = notifEnabled && container.settings.isWithinNotifyWindow(now)
             val cfg = container.strategyRepository.activeConfig()
+            val regimeReading = container.marketScannerService.regimeFromCache()
+            val regime = regimeReading?.regime
 
             // (a) Signaux de la watchlist + ordres fictifs : uniquement dans la plage autorisée.
             if (inWindow) {
@@ -74,6 +77,41 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             //       (22h–7h) : il est alors délivré au premier scan du matin.
             //     - Alléger : respecte ta plage horaire.
             val daytime = now.hour in 7..21
+
+            // Météo du marché : prévenir quand le CAC 40 se retourne (une alerte par changement).
+            if (regimeReading != null) {
+                val prev = container.settings.lastRegime?.let { runCatching { Regime.valueOf(it) }.getOrNull() }
+                val cur = regimeReading.regime
+                if (prev == null || !notifEnabled) {
+                    container.settings.lastRegime = cur.name // 1re lecture ou notifications coupées : mémoriser sans alerter
+                } else if (cur != prev) {
+                    val why = regimeReading.reasons.firstOrNull().orEmpty()
+                    val delivered = when {
+                        cur == Regime.RISK_OFF && (inWindow || daytime) -> {
+                            Notifications.notifyMarket(
+                                applicationContext, "Marché en repli : achats suspendus",
+                                "$why. Je ne propose plus de nouveaux achats et je surveille tes positions (alléger / vendre).",
+                            ); true
+                        }
+                        cur == Regime.CAUTION && inWindow -> {
+                            val improving = prev == Regime.RISK_OFF
+                            Notifications.notifyMarket(
+                                applicationContext,
+                                if (improving) "Marché en voie d'amélioration" else "Marché fragile : prudence",
+                                "$why. Seuls les achats les plus solides sont proposés.",
+                            ); true
+                        }
+                        cur == Regime.RISK_ON && inWindow -> {
+                            Notifications.notifyMarket(
+                                applicationContext, "Marché redevenu favorable",
+                                "Le CAC 40 s'est repris : les signaux d'achat sont de nouveau actifs.",
+                            ); true
+                        }
+                        else -> false
+                    }
+                    if (delivered) container.settings.lastRegime = cur.name
+                }
+            }
             val held = mutableListOf<Triple<String, Double, Boolean>>()
             container.portfolioRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, false) }
             if (container.paperRepository.isEnabled()) {
@@ -84,7 +122,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     ?: container.marketRepository.cachedCandles(ticker)
                 if (candles.isEmpty()) return@run
                 val advice = ExitAdvisor.advise(ticker, candles, avgPrice, cfg,
-                    lastTrimPrice = container.settings.trimAnchor(ticker))
+                    lastTrimPrice = container.settings.trimAnchor(ticker), regime = regime)
                 container.settings.setTrimAnchor(ticker, advice.trimAnchor)
                 if (!notifEnabled) return@run
                 val dedupKey = if (isTest) "test:$ticker" else ticker

@@ -80,6 +80,7 @@ object StanceEvaluator {
         candles: List<Candle>,
         config: StrategyConfig = StrategyConfig(),
         benchCloses: List<Double>? = null,
+        regime: Regime? = null,
     ): Opportunity {
         val last = candles.lastOrNull()
             ?: return Opportunity(ticker, Stance.NEUTRAL, 0.0, listOf("Pas de donnée"), 0.0, "")
@@ -149,11 +150,29 @@ object StanceEvaluator {
 
         score = score.coerceIn(-1.0, 1.0)
 
-        val stance = when {
+        var stance = when {
             score >= 0.5 -> Stance.BUY
             score >= 0.15 -> Stance.WATCH
             score <= -0.4 -> Stance.AVOID
             else -> Stance.NEUTRAL
+        }
+
+        // Filtre « météo du marché » : une tendance haussière isolée ne suffit pas
+        // quand le CAC 40 se retourne.
+        if (config.useMarketFilter && stance == Stance.BUY) {
+            when (regime) {
+                Regime.RISK_OFF -> {
+                    stance = Stance.WATCH
+                    reasons += "Marché baissier (CAC 40) : achat suspendu, attendre le retour au calme"
+                }
+                Regime.CAUTION -> if (score < config.cautionStanceThreshold) {
+                    stance = Stance.WATCH
+                    reasons += "Marché fragile (CAC 40) : achat différé, configuration pas assez solide"
+                } else {
+                    reasons += "Marché fragile (CAC 40) : configuration assez solide pour rester à l'achat"
+                }
+                else -> {}
+            }
         }
         return Opportunity(ticker, stance, score, reasons, last.close, last.date, risk)
     }
@@ -175,13 +194,14 @@ object MarketScanner {
         minHistory: Int = 120,
         minAvgTurnover: Double = 200_000.0,
         benchmark: List<Candle>? = null,
+        regime: Regime? = null,
     ): List<Opportunity> {
         val benchCloses = benchmark?.closes()
         return data.entries
             .filter { (_, candles) ->
                 DataQuality.check(candles, referenceDate, minHistory, minAvgTurnover = minAvgTurnover).ok
             }
-            .map { (ticker, candles) -> StanceEvaluator.evaluate(ticker, candles, config, benchCloses) }
+            .map { (ticker, candles) -> StanceEvaluator.evaluate(ticker, candles, config, benchCloses, regime) }
             .sortedByDescending { it.score }
     }
 }

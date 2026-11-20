@@ -30,6 +30,7 @@ object ExitAdvisor {
         config: StrategyConfig = StrategyConfig(),
         news: NewsSentiment = NewsSentiment.NEUTRAL,
         lastTrimPrice: Double? = null,
+        regime: Regime? = null,
     ): ExitAdvice {
         val last = candles.lastOrNull()
             ?: return ExitAdvice(ticker, ExitAction.HOLD, 0.0, 0.0, listOf("Pas de donnée"))
@@ -65,6 +66,13 @@ object ExitAdvisor {
 
         // Actualité récente négative.
         if (news == NewsSentiment.NEGATIVE) { sell += 1; reasons += "Actualité récente négative" }
+
+        // Anticipation : quand le marché global (CAC 40) casse, réduire l'exposition.
+        when (regime) {
+            Regime.RISK_OFF -> { sell += 1; reasons += "Marché en repli (CAC 40) : réduire l'exposition par prudence" }
+            Regime.CAUTION -> reasons += "Marché fragile (CAC 40) : vigilance"
+            else -> {}
+        }
 
         val baseAction = when {
             sell >= 2 -> ExitAction.SELL

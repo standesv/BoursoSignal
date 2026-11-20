@@ -67,6 +67,11 @@ data class StrategyConfig(
     // « Conserver » tant que le cours n'a pas repris au moins trimReArmPct au-dessus
     // du cours du dernier allègement (nouvelle jambe de hausse).
     val trimReArmPct: Double = 0.10,
+    // Filtre « météo du marché » (CAC 40) : pas d'achat quand le marché est baissier ;
+    // quand il est fragile, seuls les signaux les plus solides passent.
+    val useMarketFilter: Boolean = true,
+    val cautionBuyExtra: Double = 0.5,          // score d'achat supplémentaire exigé (marché fragile)
+    val cautionStanceThreshold: Double = 0.65,  // score de tendance exigé pour « Achat » (marché fragile)
 ) {
     /** Nombre minimal de bougies pour que les indicateurs de base soient définis. */
     val minHistory: Int

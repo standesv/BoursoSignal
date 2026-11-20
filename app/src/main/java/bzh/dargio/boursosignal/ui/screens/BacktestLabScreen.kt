@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.BacktestLab
 import bzh.dargio.boursosignal.domain.signals.LabResult
+import bzh.dargio.boursosignal.domain.signals.MarketRegimeEvaluator
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,8 @@ import kotlinx.coroutines.withContext
 fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<LabResult?>(null) }
+    var noFilter by remember { mutableStateOf<LabResult?>(null) }
+    var hasIndex by remember { mutableStateOf(true) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val scope = rememberCoroutineScope()
 
@@ -80,9 +83,17 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
                             names = entries.associate { it.ticker to it.name }
                             val data = entries.associate { it.ticker to container.marketRepository.cachedCandles(it.ticker) }
                                 .filterValues { it.isNotEmpty() }
-                            BacktestLab.run(data, cfg)
+                            // Rejoue la météo du marché jour par jour, puis compare avec / sans filtre.
+                            val index = container.marketRepository.cachedCandles(MarketRegimeEvaluator.INDEX_TICKER)
+                            Triple(
+                                BacktestLab.run(data, cfg, index),
+                                BacktestLab.run(data, cfg.copy(useMarketFilter = false), index),
+                                index.size >= MarketRegimeEvaluator.MIN_HISTORY,
+                            )
                         }
-                        result = outcome
+                        result = outcome.first
+                        noFilter = outcome.second
+                        hasIndex = outcome.third
                         running = false
                     }
                 },
@@ -107,6 +118,19 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
                         Text("Synthèse sur ${r.count} valeurs", style = MaterialTheme.typography.labelMedium)
                         MetricRow("Stratégie (moyenne)", "%+.1f %%".format(r.avgStrategyPct), r.avgStrategyPct >= 0)
                         MetricRow("Achat-conservation (moyenne)", "%+.1f %%".format(r.avgBuyHoldPct), r.avgBuyHoldPct >= 0)
+                        noFilter?.let { nf ->
+                            MetricRow("Stratégie sans filtre marché", "%+.1f %%".format(nf.avgStrategyPct), nf.avgStrategyPct >= 0)
+                            val gain = r.avgStrategyPct - nf.avgStrategyPct
+                            Text(
+                                when {
+                                    !hasIndex -> "Filtre marché non mesuré : historique du CAC 40 absent du cache (lance un scan depuis Idées)."
+                                    kotlin.math.abs(gain) < 0.05 -> "Le filtre « météo du marché » n'a rien changé sur la période : le CAC 40 n'y a pas connu de vraie phase baissière."
+                                    gain > 0 -> "Le filtre « météo du marché » améliore la moyenne de %+.1f pts : il a évité des achats juste avant des baisses du marché.".format(gain)
+                                    else -> "Sur cette période, le filtre « météo du marché » coûte %.1f pts : il a fait rater quelques rebonds. C'est le prix d'une protection contre les retournements.".format(gain)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         HorizontalDivider()
                         Text(
                             "La stratégie bat l'achat-conservation sur ${r.beatCount} / ${r.count} valeurs.",
@@ -156,7 +180,9 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
 
                 Text(
                     "Écart = stratégie − achat-conservation. Hypothèses : exécution à la clôture, 100 % investi / " +
-                        "100 % liquide, sans frais. Les performances passées ne préjugent pas des résultats futurs.",
+                        "100 % liquide, sans frais. La météo du marché est rejouée jour par jour sans regarder le futur " +
+                        "(blocage des achats) ; l'allègement conseillé en marché baissier n'est pas simulé. Les " +
+                        "performances passées ne préjugent pas des résultats futurs.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

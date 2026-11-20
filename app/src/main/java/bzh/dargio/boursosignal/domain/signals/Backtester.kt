@@ -33,7 +33,11 @@ data class BacktestResult(
  */
 class Backtester(private val config: StrategyConfig = StrategyConfig()) {
 
-    fun run(candles: List<Candle>): BacktestResult {
+    /**
+     * @param regimeByDate météo du marché par date (sans information future) ;
+     *                     null = rejouer la stratégie sans filtre de marché.
+     */
+    fun run(candles: List<Candle>, regimeByDate: Map<String, Regime>? = null): BacktestResult {
         val engine = SignalEngine(config)
         val trades = mutableListOf<BacktestTrade>()
 
@@ -54,7 +58,7 @@ class Backtester(private val config: StrategyConfig = StrategyConfig()) {
             val window = candles.subList(0, i + 1)
             val price = candles[i].close
             val entry = if (inPosition) entryPrice else null
-            val signal = engine.evaluate(window, entry)
+            val signal = engine.evaluate(window, entry, regimeByDate?.get(candles[i].date))
 
             if (!inPosition && signal.type == SignalType.BUY) {
                 inPosition = true
