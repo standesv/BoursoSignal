@@ -22,10 +22,19 @@ class BoursoSignalApp : Application() {
         container = AppContainer(this)
         Notifications.createChannel(this)
 
-        appScope.launch { container.strategyRepository.ensureDefault() }
+        appScope.launch {
+            container.strategyRepository.ensureDefault()
+            // Réglage de risque recommandé appliqué une seule fois ; ensuite l'utilisateur
+            // peut l'ajuster dans les Réglages sans qu'il soit réécrasé.
+            if (!container.settings.strategyRetunedV2) {
+                container.strategyRepository.retuneOnce(stopLossPct = -0.12, takeProfitPct = null)
+                container.settings.strategyRetunedV2 = true
+            }
+        }
 
         RefreshWorker.schedule(this, container.settings.refreshIntervalHours)
         RefreshWorker.scheduleMarketOpen(this)
+        RefreshWorker.scheduleMarketClose(this)
         RefreshWorker.scheduleNotify(this, container.settings.notifyStartHour)
     }
 }

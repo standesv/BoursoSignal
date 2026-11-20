@@ -15,16 +15,20 @@ class StrategyRepository(private val dao: StrategyDao) {
 
     /** Crée une stratégie par défaut au premier lancement si aucune n'existe. */
     suspend fun ensureDefault() {
-        val existing = dao.firstEnabled()
-        if (existing == null) {
-            dao.upsert(StrategyEntity(name = "Stratégie par défaut"))
-            return
-        }
-        // Applique les réglages de risque recommandés même aux installations existantes :
-        // pas de take-profit fixe (on laisse courir les gagnantes, sorties gérées par le
-        // stop suiveur) et stop-loss élargi pour éviter les ventes prématurées. Idempotent.
-        val retuned = existing.copy(stopLossPct = -0.12, takeProfitPct = null)
+        if (dao.firstEnabled() == null) dao.upsert(StrategyEntity(name = "Stratégie par défaut"))
+    }
+
+    /** Applique une fois le réglage de risque recommandé (prop20) aux installations existantes. */
+    suspend fun retuneOnce(stopLossPct: Double?, takeProfitPct: Double?) {
+        val existing = dao.firstEnabled() ?: return
+        val retuned = existing.copy(stopLossPct = stopLossPct, takeProfitPct = takeProfitPct)
         if (retuned != existing) dao.upsert(retuned)
+    }
+
+    /** Met à jour le stop-loss / take-profit de la stratégie active (réglage utilisateur). */
+    suspend fun updateRisk(stopLossPct: Double?, takeProfitPct: Double?) {
+        val existing = dao.firstEnabled() ?: StrategyEntity(name = "Stratégie par défaut")
+        dao.upsert(existing.copy(stopLossPct = stopLossPct, takeProfitPct = takeProfitPct))
     }
 
     /** Config de la première stratégie active, ou les valeurs par défaut du §5. */

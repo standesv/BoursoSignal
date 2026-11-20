@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.FeeProfile
 import bzh.dargio.boursosignal.domain.signals.Fees
+import bzh.dargio.boursosignal.work.Notifications
 import bzh.dargio.boursosignal.work.RefreshWorker
 import kotlinx.coroutines.launch
 
@@ -78,6 +80,21 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
     val minState = remember { mutableStateMapOf<String, String>().apply { profiles.forEach { put(it.key, trimNum(it.minFee)) } } }
     var feesSaved by remember { mutableStateOf(false) }
 
+    // Stratégie : stop-loss / take-profit éditables (chargés depuis la stratégie active).
+    var stopLoss by remember { mutableStateOf("") }
+    var takeProfit by remember { mutableStateOf("") }
+    var strategyLoaded by remember { mutableStateOf(false) }
+    var strategySaved by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val c = container.strategyRepository.activeConfig()
+        stopLoss = c.stopLossPct?.let { trimNum(kotlin.math.abs(it) * 100) } ?: ""
+        takeProfit = c.takeProfitPct?.let { trimNum(it * 100) } ?: ""
+        strategyLoaded = true
+    }
+
+    // Vérification des notifications.
+    var testMsg by remember { mutableStateOf<String?>(null) }
+
     Scaffold(topBar = { TopAppBar(title = { Text("Réglages") }) }) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
@@ -96,6 +113,46 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
             OutlinedButton(onClick = onBacktest, modifier = Modifier.fillMaxWidth()) {
                 Text("Tester la stratégie sur l'univers")
             }
+
+            // ---- Stratégie : gestion du risque ----
+            HorizontalDivider()
+            Text("Stratégie : gestion du risque", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Stop-loss : vente conseillée quand une position perd plus que ce seuil (par rapport à ton " +
+                    "prix d'achat). Plus il est serré, plus l'alerte de vente arrive tôt. Take-profit : vente " +
+                    "quand le gain atteint ce seuil ; laisse vide pour le désactiver et laisser courir les " +
+                    "gains (sortie gérée par le stop suiveur). S'applique au réel et au test.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = stopLoss,
+                    onValueChange = { stopLoss = it.filter { c -> c.isDigit() || c == '.' || c == ',' }; strategySaved = false },
+                    label = { Text("Stop-loss (%)") },
+                    placeholder = { Text("ex. 8") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = takeProfit,
+                    onValueChange = { takeProfit = it.filter { c -> c.isDigit() || c == '.' || c == ',' }; strategySaved = false },
+                    label = { Text("Take-profit (%)") },
+                    placeholder = { Text("vide = off") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Button(
+                onClick = {
+                    val sl = stopLoss.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }?.let { -it / 100.0 }
+                    val tp = takeProfit.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }?.let { it / 100.0 }
+                    scope.launch { container.strategyRepository.updateRisk(sl, tp) }
+                    strategySaved = true
+                },
+                enabled = strategyLoaded,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Enregistrer la stratégie") }
+            if (strategySaved) Text("Stratégie enregistrée — appliquée dès le prochain scan.", style = MaterialTheme.typography.bodySmall)
 
             HorizontalDivider()
             Text("Rafraîchissement", fontWeight = FontWeight.SemiBold)
@@ -184,14 +241,29 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Autoriser l'exécution en arrière-plan") }
+            OutlinedButton(
+                onClick = {
+                    testMsg = if (Notifications.notifyTest(context)) "Notification de test envoyée — vérifie qu'elle est apparue."
+                    else "Notifications non autorisées : active-les pour BoursoSignal dans les réglages Android."
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Tester les notifications") }
+            testMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Text(
+                "Dernier scan en arrière-plan : ${formatScan(settings.lastScanAt)}. Scans automatiques vers " +
+                    "9h10 (ouverture) et 17h40 (après la clôture, quand la séance du jour est disponible). " +
+                    "Un conseil de vente est notifié dès sa détection, même hors de ta plage (mais jamais la nuit), " +
+                    "une seule fois. L'app ne vend jamais à ta place, ni en réel ni en test.",
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             // ---- Mode test ----
             HorizontalDivider()
             Text("Mode test (portefeuille fictif)", fontWeight = FontWeight.SemiBold)
             Text(
-                "Teste l'efficacité des signaux avec de l'argent fictif : suivi automatique des " +
-                    "recommandations, achats/ventes à la main, sans aucun risque. Les positions test " +
-                    "apparaissent dans l'onglet Portefeuille.",
+                "Teste l'efficacité des signaux avec de l'argent fictif, sans aucun risque. Les achats " +
+                    "signalés sont simulés automatiquement ; les ventes ne le sont jamais : l'app te notifie " +
+                    "« Vendre » ou « Alléger » et tu vends toi-même dans l'onglet Portefeuille.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -303,6 +375,13 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
             text = { Text("Les positions et le journal fictifs seront effacés, et le portefeuille repartira du capital indiqué.") },
         )
     }
+}
+
+/** Date/heure lisible du dernier scan (epoch ms). */
+private fun formatScan(epochMs: Long): String {
+    if (epochMs <= 0L) return "pas encore"
+    val dt = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.of("Europe/Paris"))
+    return java.time.format.DateTimeFormatter.ofPattern("dd/MM 'à' HH'h'mm").format(dt)
 }
 
 /** Formate un nombre sans décimales superflues (0.60 → "0.6", 1.99 → "1.99"). */

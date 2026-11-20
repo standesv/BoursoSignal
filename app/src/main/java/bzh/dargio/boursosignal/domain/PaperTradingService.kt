@@ -14,6 +14,8 @@ class PaperTradingService(private val paper: PaperRepository) {
         if (!paper.isEnabled()) return emptyList()
         val executed = mutableListOf<PaperAutoTrade>()
         for (s in emitted) {
+            // Pas de vente automatique : l'utilisateur est notifié et vend lui-même.
+            if (s.result.type.name == "SELL") continue
             paper.applySignal(
                 ticker = s.ticker,
                 type = s.result.type.name,

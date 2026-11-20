@@ -28,13 +28,13 @@ object Notifications {
     }
 
     /** Conseil de vente sur une position détenue. */
-    fun notifyExit(context: Context, id: Int, ticker: String, reason: String) {
-        push(context, id, "Vendre $ticker ?", reason)
+    fun notifyExit(context: Context, id: Int, ticker: String, reason: String, label: String = "") {
+        push(context, id, "Vendre $ticker ?$label", "$reason — passe l'ordre de vente toi-même.")
     }
 
     /** Conseil d'allègement (prendre une partie des gains) sur une position détenue. */
-    fun notifyTrim(context: Context, id: Int, ticker: String, reason: String) {
-        push(context, id, "Alléger $ticker ?", "$reason — vends ~la moitié pour sécuriser une partie des gains.")
+    fun notifyTrim(context: Context, id: Int, ticker: String, reason: String, label: String = "") {
+        push(context, id, "Alléger $ticker ?$label", "$reason — vends ~la moitié pour sécuriser une partie des gains.")
     }
 
     /** Ordre fictif exécuté automatiquement en mode test. */
@@ -43,8 +43,12 @@ object Notifications {
         push(context, id, "Mode test : $sens de $qty $ticker", "$name — opération simulée automatiquement par l'app")
     }
 
-    private fun push(context: Context, id: Int, title: String, body: String) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+    /** Notification de test (bouton Réglages). Renvoie false si la permission manque. */
+    fun notifyTest(context: Context): Boolean =
+        push(context, 990001, "Test de notification ✅", "Si tu vois ceci, les alertes BoursoSignal fonctionnent.")
+
+    private fun push(context: Context, id: Int, title: String, body: String): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
@@ -54,5 +58,6 @@ object Notifications {
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(id, notification)
+        return true
     }
 }

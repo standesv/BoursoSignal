@@ -36,11 +36,14 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             val paperTrades = container.paperTradingService.apply(emitted)
             container.marketScannerService.scan()
 
-            // 2. Notifications : uniquement dans la plage autorisée.
+            // 2. Notifications.
             val now = LocalDateTime.now(ZoneId.of("Europe/Paris"))
-            val canNotify = container.settings.notificationsEnabled && container.settings.isWithinNotifyWindow(now)
-            if (canNotify) {
-                // Signaux non encore notifiés (y compris ceux reportés depuis la nuit / hors plage).
+            val notifEnabled = container.settings.notificationsEnabled
+            val inWindow = notifEnabled && container.settings.isWithinNotifyWindow(now)
+            val cfg = container.strategyRepository.activeConfig()
+
+            // (a) Signaux de la watchlist + ordres fictifs : uniquement dans la plage autorisée.
+            if (inWindow) {
                 container.signalRepository.unhandled().forEachIndexed { index, s ->
                     Notifications.notifySignal(
                         context = applicationContext,
@@ -52,8 +55,6 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     )
                     container.signalRepository.setHandled(s.id, true)
                 }
-
-                // Ordres fictifs exécutés durant ce cycle.
                 val nameByTicker = emitted.associate { it.ticker to it.name }
                 paperTrades.forEach { t ->
                     Notifications.notifyPaperTrade(
@@ -65,25 +66,48 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                         t.qty,
                     )
                 }
+            }
 
-                // Conseils sur les positions réelles détenues : vendre OU alléger.
-                val cfg = container.strategyRepository.activeConfig()
-                container.portfolioRepository.observePositions().first().forEach { p ->
-                    val candles = container.marketRepository.refresh(p.ticker).getOrNull()
-                        ?: container.marketRepository.cachedCandles(p.ticker)
-                    if (candles.isNotEmpty()) {
-                        val advice = ExitAdvisor.advise(p.ticker, candles, p.avgPrice, cfg,
-                            lastTrimPrice = container.settings.trimAnchor(p.ticker))
-                        container.settings.setTrimAnchor(p.ticker, advice.trimAnchor)
-                        val reason = advice.reasons.firstOrNull() ?: "Conditions réunies"
-                        when (advice.action) {
-                            ExitAction.SELL -> Notifications.notifyExit(applicationContext, (p.ticker.hashCode() and 0xffff) + 1, p.ticker, reason)
-                            ExitAction.TRIM -> Notifications.notifyTrim(applicationContext, (p.ticker.hashCode() and 0xffff) + 4, p.ticker, reason)
-                            ExitAction.HOLD -> {}
-                        }
+            // (b) Conseils de sortie sur les positions détenues, RÉEL ET TEST. L'app ne vend
+            //     jamais à ta place : elle te prévient. Une alerte par changement d'avis.
+            //     - Vendre : envoyé dès la détection, même hors de ta plage, mais jamais la nuit
+            //       (22h–7h) : il est alors délivré au premier scan du matin.
+            //     - Alléger : respecte ta plage horaire.
+            val daytime = now.hour in 7..21
+            val held = mutableListOf<Triple<String, Double, Boolean>>()
+            container.portfolioRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, false) }
+            if (container.paperRepository.isEnabled()) {
+                container.paperRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, true) }
+            }
+            for ((ticker, avgPrice, isTest) in held) run {
+                val candles = container.marketRepository.refresh(ticker).getOrNull()
+                    ?: container.marketRepository.cachedCandles(ticker)
+                if (candles.isEmpty()) return@run
+                val advice = ExitAdvisor.advise(ticker, candles, avgPrice, cfg,
+                    lastTrimPrice = container.settings.trimAnchor(ticker))
+                container.settings.setTrimAnchor(ticker, advice.trimAnchor)
+                if (!notifEnabled) return@run
+                val dedupKey = if (isTest) "test:$ticker" else ticker
+                val label = if (isTest) " (portefeuille test)" else ""
+                val baseId = (ticker.hashCode() and 0xffff) + (if (isTest) 10 else 0)
+                val reason = advice.reasons.firstOrNull() ?: "Conditions réunies"
+                val already = container.settings.lastExitNotified(dedupKey)
+                val key = advice.action.name
+                when (advice.action) {
+                    ExitAction.SELL -> if (key != already && (inWindow || daytime)) {
+                        Notifications.notifyExit(applicationContext, baseId + 1, ticker, reason, label)
+                        container.settings.setLastExitNotified(dedupKey, key)
                     }
+                    ExitAction.TRIM -> if (key != already && inWindow) {
+                        Notifications.notifyTrim(applicationContext, baseId + 4, ticker, reason, label)
+                        container.settings.setLastExitNotified(dedupKey, key)
+                    }
+                    ExitAction.HOLD -> container.settings.setLastExitNotified(dedupKey, null)
                 }
             }
+
+            // 3. Preuve de bon fonctionnement : horodatage du dernier scan réussi.
+            container.settings.lastScanAt = System.currentTimeMillis()
             Result.success()
         } catch (t: Throwable) {
             Result.retry()
@@ -94,6 +118,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         private const val WORK_NAME = "boursosignal_refresh"
         private const val MARKET_OPEN_WORK = "boursosignal_market_open"
         private const val NOTIFY_WORK = "boursosignal_notify"
+        private const val MARKET_CLOSE_WORK = "boursosignal_market_close"
 
         fun schedule(context: Context, intervalHours: Int) {
             val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
@@ -105,6 +130,12 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         /** Rafraîchissement quotidien peu après l'ouverture d'Euronext Paris (~9h10). */
         fun scheduleMarketOpen(context: Context) {
             enqueueDaily(context, MARKET_OPEN_WORK, hour = 9, minute = 10)
+        }
+
+        /** Rafraîchissement quotidien peu après la clôture d'Euronext Paris (~17h40) :
+         *  la bougie du jour est disponible, les ventes sont détectées le soir même. */
+        fun scheduleMarketClose(context: Context) {
+            enqueueDaily(context, MARKET_CLOSE_WORK, hour = 17, minute = 40)
         }
 
         /** Passage quotidien calé sur le début de la plage de notifications choisie. */

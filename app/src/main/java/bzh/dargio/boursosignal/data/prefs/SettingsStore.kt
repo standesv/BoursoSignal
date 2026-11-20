@@ -81,15 +81,33 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
+    /** Horodatage (epoch ms) du dernier scan de fond réussi (0 = jamais). */
+    var lastScanAt: Long
+        get() = prefs.getLong(KEY_LAST_SCAN, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_SCAN, value).apply()
+
+    /** Retuning unique de la stratégie (prop20) déjà appliqué aux installations existantes ? */
+    var strategyRetunedV2: Boolean
+        get() = prefs.getBoolean(KEY_RETUNED_V2, false)
+        set(value) = prefs.edit().putBoolean(KEY_RETUNED_V2, value).apply()
+
+    /** Dernière action de sortie déjà notifiée pour une valeur (déduplication des alertes). */
+    fun lastExitNotified(ticker: String): String? = prefs.getString("exit_notif_$ticker", null)
+    fun setLastExitNotified(ticker: String, action: String?) {
+        val editor = prefs.edit()
+        if (action == null) editor.remove("exit_notif_$ticker") else editor.putString("exit_notif_$ticker", action)
+        editor.apply()
+    }
+
     /** Cours du dernier conseil « Alléger » pour une valeur (null = aucun). */
     fun trimAnchor(ticker: String): Double? =
         prefs.getFloat("trim_anchor_$ticker", Float.NaN).let { if (it.isNaN()) null else it.toDouble() }
 
     /** Mémorise (ou efface si null) le cours du dernier allègement conseillé. */
     fun setTrimAnchor(ticker: String, price: Double?) {
-        prefs.edit().apply {
-            if (price == null) remove("trim_anchor_$ticker") else putFloat("trim_anchor_$ticker", price.toFloat())
-        }.apply()
+        val editor = prefs.edit()
+        if (price == null) editor.remove("trim_anchor_$ticker") else editor.putFloat("trim_anchor_$ticker", price.toFloat())
+        editor.apply()
     }
 
     private companion object {
@@ -99,5 +117,7 @@ class SettingsStore(context: Context) {
         const val KEY_NOTIFY_START = "notify_start_hour"
         const val KEY_NOTIFY_END = "notify_end_hour"
         const val KEY_FEE_PROFILE = "paper_fee_profile_key"
+        const val KEY_LAST_SCAN = "last_scan_at"
+        const val KEY_RETUNED_V2 = "strategy_retuned_v2"
     }
 }
