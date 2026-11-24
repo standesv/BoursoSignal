@@ -1,5 +1,6 @@
 package bzh.dargio.boursosignal.domain.signals
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,5 +25,13 @@ class MarketWatchTimeTest {
         assertFalse(MarketClock.isWatchTime(at(20, 17, 46)))
         assertFalse(MarketClock.isWatchTime(at(20, 22, 0)))
         assertFalse(MarketClock.isWatchTime(at(21, 11, 0)))   // samedi
+    }
+
+    @Test
+    fun next_exact_alarm_slot() {
+        assertEquals(at(20, 9, 15), MarketClock.nextWatchSlot(at(20, 9, 3)))
+        assertEquals(at(20, 17, 45), MarketClock.nextWatchSlot(at(20, 17, 31)))     // capte la clôture
+        assertEquals(at(20, 9, 0), MarketClock.nextWatchSlot(at(20, 7, 12)))       // avant l'ouverture
+        assertEquals(LocalDateTime.of(2026, 11, 23, 9, 0), MarketClock.nextWatchSlot(at(20, 17, 50))) // vendredi soir → lundi 9h
     }
 }

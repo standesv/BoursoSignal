@@ -10,6 +10,7 @@ import bzh.dargio.boursosignal.domain.signals.MarketRegimeEvaluator
 import bzh.dargio.boursosignal.domain.signals.SignalEngine
 import bzh.dargio.boursosignal.domain.signals.SignalResult
 import bzh.dargio.boursosignal.domain.signals.SignalType
+import bzh.dargio.boursosignal.domain.signals.TradePlanner
 
 /** Un signal nouvellement émis, destiné aux notifications. */
 data class EmittedSignal(val ticker: String, val name: String, val result: SignalResult)
@@ -47,6 +48,11 @@ class SignalRefresher(
             val avgEntry = portfolio.position(instrument.ticker)?.avgPrice
             val result = engine.evaluate(candles, avgEntry, regime)
             if (result.type == SignalType.NONE) continue
+            // Cohérence avec Idées (§23-3) : pas de signal d'achat si une résistance proche limite le gain.
+            if (result.type == SignalType.BUY && config.useTradePlanFilter) {
+                val plan = TradePlanner.plan(candles, config)
+                if (plan != null && plan.rewardRisk < config.minRewardRisk) continue
+            }
 
             // Déduplication : pas de ré-émission pour la même bougie et le même sens.
             val last = signals.latestFor(instrument.ticker)

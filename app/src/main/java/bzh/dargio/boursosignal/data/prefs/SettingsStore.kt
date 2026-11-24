@@ -86,6 +86,47 @@ class SettingsStore(context: Context) {
         get() = prefs.getLong(KEY_LAST_SCAN, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_SCAN, value).apply()
 
+    // ---- v3 (§23) ----
+
+    private fun str(key: String): String? = prefs.getString(key, null)
+    private fun putStr(key: String, value: String?) {
+        val editor = prefs.edit()
+        if (value == null) editor.remove(key) else editor.putString(key, value)
+        editor.apply()
+    }
+
+    /** Idées : ne proposer que des valeurs éligibles au PEA. */
+    var peaOnly: Boolean
+        get() = prefs.getBoolean("pea_only", false)
+        set(value) = prefs.edit().putBoolean("pea_only", value).apply()
+
+    /** Semaine (AAAA-Wnn) du dernier bilan hebdomadaire notifié. */
+    var lastWeeklyReport: String?
+        get() = str("last_weekly_report")
+        set(value) = putStr("last_weekly_report", value)
+
+    /** Lignes affichées par le widget d'écran d'accueil. */
+    var widgetRegime: String?
+        get() = str("widget_regime")
+        set(value) = putStr("widget_regime", value)
+    var widgetTest: String?
+        get() = str("widget_test")
+        set(value) = putStr("widget_test", value)
+    var widgetReal: String?
+        get() = str("widget_real")
+        set(value) = putStr("widget_real", value)
+    var widgetPending: String?
+        get() = str("widget_pending")
+        set(value) = putStr("widget_pending", value)
+
+    /** Cache du calendrier d'une valeur : "OK|résultats|dividende|horodatage" ou "ERR|||horodatage". */
+    fun eventsCache(ticker: String): String? = str("events_$ticker")
+    fun setEventsCache(ticker: String, value: String) = putStr("events_$ticker", value)
+
+    /** Date de publication déjà signalée pour une position (une alerte par publication). */
+    fun earningsNotified(ticker: String): String? = str("earn_notif_$ticker")
+    fun setEarningsNotified(ticker: String, date: String) = putStr("earn_notif_$ticker", date)
+
     /** Dernière météo du marché notifiée (RISK_ON / CAUTION / RISK_OFF), null = jamais. */
     var lastRegime: String?
         get() = prefs.getString(KEY_LAST_REGIME, null)

@@ -3,7 +3,11 @@ package bzh.dargio.boursosignal.di
 import android.content.Context
 import bzh.dargio.boursosignal.data.local.AppDatabase
 import bzh.dargio.boursosignal.data.prefs.SettingsStore
+import bzh.dargio.boursosignal.data.remote.CalendarProvider
 import bzh.dargio.boursosignal.data.remote.NewsProvider
+import bzh.dargio.boursosignal.data.repo.AdviceRepository
+import bzh.dargio.boursosignal.data.repo.CalendarRepository
+import bzh.dargio.boursosignal.data.repo.PriceAlertRepository
 import bzh.dargio.boursosignal.data.repo.MarketRepository
 import bzh.dargio.boursosignal.data.repo.PaperRepository
 import bzh.dargio.boursosignal.data.repo.PortfolioRepository
@@ -34,6 +38,9 @@ class AppContainer(context: Context) {
     val paperRepository = PaperRepository(db.paperDao()) { settings.activeFeeProfile() }
     val universeProvider = UniverseProvider(context)
     val newsProvider = NewsProvider()
+    val adviceRepository = AdviceRepository(db.adviceDao())
+    val priceAlertRepository = PriceAlertRepository(db.priceAlertDao())
+    val calendarRepository = CalendarRepository(CalendarProvider(), settings)
 
     val signalRefresher = SignalRefresher(
         watchlist = watchlistRepository,
@@ -49,5 +56,7 @@ class AppContainer(context: Context) {
         universe = universeProvider,
         market = marketRepository,
         strategies = strategyRepository,
+        advice = adviceRepository,
+        calendar = calendarRepository,
     )
 }

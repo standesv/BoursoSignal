@@ -4,9 +4,17 @@ import android.content.Context
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** Une valeur de l'univers surveillé (ticker Yahoo + nom affichable). */
+/**
+ * Une valeur de l'univers surveillé : ticker Yahoo, nom affichable, secteur et
+ * éligibilité au PEA (§23-7, §23-11 : les foncières SIIC sont exclues du PEA).
+ */
 @Serializable
-data class UniverseEntry(val ticker: String, val name: String)
+data class UniverseEntry(
+    val ticker: String,
+    val name: String,
+    val sector: String = "",
+    val pea: Boolean = true,
+)
 
 /**
  * Fournit l'univers de valeurs surveillées (Euronext Paris élargi), chargé depuis

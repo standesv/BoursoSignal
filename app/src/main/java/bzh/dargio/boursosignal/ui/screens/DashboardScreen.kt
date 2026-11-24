@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
@@ -54,9 +55,13 @@ import bzh.dargio.boursosignal.domain.signals.Regime
 import bzh.dargio.boursosignal.domain.signals.RegimeReading
 import bzh.dargio.boursosignal.domain.signals.RiskLevel
 import bzh.dargio.boursosignal.domain.signals.Stance
+import bzh.dargio.boursosignal.domain.signals.TradePlanner
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
+import bzh.dargio.boursosignal.work.PortfolioSnapshot
+import bzh.dargio.boursosignal.work.PortfolioSnapshots
 import bzh.dargio.boursosignal.work.PositionAlerts
+import bzh.dargio.boursosignal.widget.WidgetSnapshot
 
 private val AMBER = Color(0xFFF59E0B)
 private val GREY = Color(0xFF6B7280)
@@ -71,6 +76,7 @@ fun DashboardScreen(
     onOpen: (String) -> Unit,
     onPaper: () -> Unit,
     onSearch: () -> Unit,
+    onBilan: () -> Unit = {},
 ) {
     val scanner = container.marketScannerService
     val opportunities by scanner.opportunities.collectAsState()
@@ -81,7 +87,9 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
     var added by remember { mutableStateOf(setOf<String>()) }
 
+    val widgetContext = LocalContext.current
     LaunchedEffect(Unit) {
+        runCatching { WidgetSnapshot.refresh(widgetContext, container, null) }
         if (scanner.regime.value == null) scanner.regimeFromCache()
         if (opportunities.isEmpty() && !scanning) scanner.scan()
     }
@@ -97,6 +105,16 @@ fun DashboardScreen(
     // Pour les valeurs détenues (réel ou test), conseil de gestion de position
     // (conserver/alléger/vendre) afin que l'avis des Idées soit cohérent avec le
     // portefeuille. Seules les valeurs détenues entraînent un calcul.
+    // Plan chiffré (§23-3) : capital du portefeuille test (ou réel) pour la quantité conseillée.
+    val sizingSnapshot by produceState<PortfolioSnapshot?>(initialValue = null, paperPositions, realPositions) {
+        value = PortfolioSnapshots.test(container) ?: PortfolioSnapshots.real(container)
+    }
+    // Idées : filtre « éligibles PEA » (§23-11).
+    val peaOnly = remember { container.settings.peaOnly }
+    val shownOpportunities = remember(opportunities, peaOnly) {
+        if (peaOnly) opportunities.filter { scanner.isPea(it.ticker) != false } else opportunities
+    }
+
     val alertContext = LocalContext.current
     val exitByTicker by produceState(initialValue = emptyMap<String, ExitAdvice>(), opportunities, realPositions, paperPositions, regimeReading) {
         if (heldByTicker.isEmpty()) { value = emptyMap(); return@produceState }
@@ -108,7 +126,10 @@ fun DashboardScreen(
                 .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
             if (candles.isNotEmpty()) {
                 val entryDate = held.entryDate ?: container.portfolioRepository.entryDate(opp.ticker)
-                val advice = PositionAlerts.adviceFor(container, opp.ticker, held.avgPrice, candles, cfg, regimeReading?.regime, entryDate)
+                val advice = PositionAlerts.adviceFor(
+                    container, opp.ticker, held.avgPrice, candles, cfg, regimeReading?.regime, entryDate,
+                    if (held.source == "test") "test" else "reel",
+                )
                 // Ce qui est affiché est aussi notifié (une seule fois par changement d'avis).
                 PositionAlerts.notifyIfNew(alertContext, container, opp.ticker, held.source == "test", advice,
                     allowSell = true, allowTrim = true)
@@ -123,6 +144,7 @@ fun DashboardScreen(
             TopAppBar(
                 title = { Text("Idées du jour") },
                 actions = {
+                    IconButton(onClick = onBilan) { Icon(Icons.Filled.Assessment, "Bilan des conseils") }
                     IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Rechercher une valeur") }
                     IconButton(onClick = { scope.launch { scanner.scan() } }) { Icon(Icons.Filled.Refresh, "Relancer le scan") }
                 },
@@ -154,7 +176,7 @@ fun DashboardScreen(
                     Text("Aucune opportunité pour l'instant. Relance le scan avec l'icône ↻.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
 
                 else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(opportunities, key = { it.ticker }) { opp ->
+                    items(shownOpportunities, key = { it.ticker }) { opp ->
                         val displayName = scanner.displayName(opp.ticker)
                         OpportunityCard(
                             opp = opp,
@@ -164,6 +186,8 @@ fun DashboardScreen(
                             isAdded = opp.ticker in added,
                             onOpen = { onOpen(opp.ticker) },
                             onAdd = { scope.launch { container.watchlistRepository.add(opp.ticker, displayName); added = added + opp.ticker } },
+                            peaSector = peaSectorText(scanner.isPea(opp.ticker), scanner.sectorOf(opp.ticker)),
+                            planText = planLine(opp, heldByTicker[opp.ticker] != null, sizingSnapshot),
                         )
                     }
                 }
@@ -181,6 +205,8 @@ private fun OpportunityCard(
     isAdded: Boolean,
     onOpen: () -> Unit,
     onAdd: () -> Unit,
+    peaSector: String = "",
+    planText: String? = null,
 ) {
     val reco = Recommender.of(opp.stance, exit)
     val color = toneColor(reco.tone)
@@ -196,6 +222,7 @@ private fun OpportunityCard(
             Column(Modifier.weight(1f)) {
                 Text(name, fontWeight = FontWeight.SemiBold)
                 Text("${opp.ticker} · Risque ${Analyzer.riskLabel(opp.risk)}", style = MaterialTheme.typography.labelSmall, color = riskColor(opp.risk))
+                if (peaSector.isNotBlank()) Text(peaSector, style = MaterialTheme.typography.labelSmall, color = GREY)
                 if (held != null) {
                     val plPct = if (held.avgPrice > 0) (opp.price - held.avgPrice) / held.avgPrice * 100.0 else 0.0
                     Text(
@@ -206,6 +233,7 @@ private fun OpportunityCard(
                     )
                 }
                 if (explanation.isNotBlank()) Text(explanation, style = MaterialTheme.typography.bodySmall)
+                if (planText != null) Text(planText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(reco.label, color = color, fontWeight = FontWeight.Bold)
@@ -249,4 +277,14 @@ private fun MarketRegimeBanner(reading: RegimeReading) {
             reading.reasons.take(3).forEach { Text("· $it", style = MaterialTheme.typography.bodySmall, color = GREY) }
         }
     }
+}
+
+/** Résumé du plan chiffré pour une idée d'achat non détenue (§23-3). */
+private fun planLine(opp: Opportunity, held: Boolean, snapshot: PortfolioSnapshot?): String? {
+    val plan = opp.plan ?: return null
+    if (opp.stance != Stance.BUY || held) return null
+    val size = snapshot?.let { TradePlanner.size(plan, it.total, it.cash) }
+    val qty = size?.quantity?.takeIf { it > 0 }?.let { " · Qté conseillée : $it" } ?: ""
+    return "Stop ${eur(plan.stop)} · Objectif ${eur(plan.target)} · Gain/risque " +
+        String.format(java.util.Locale.FRANCE, "%.1f", plan.rewardRisk) + qty
 }

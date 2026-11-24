@@ -17,12 +17,16 @@ import bzh.dargio.boursosignal.work.Notifications
 
 class MainActivity : ComponentActivity() {
 
-    /** Valeur dont la fiche doit s'ouvrir (appui sur une notification). */
-    private var tickerToOpen by mutableStateOf<String?>(null)
+    /** Écran à ouvrir suite à l'appui sur une notification (fiche d'une valeur ou Bilan). */
+    private var routeToOpen by mutableStateOf<String?>(null)
+
+    private fun routeFrom(intent: Intent?): String? =
+        intent?.getStringExtra(Notifications.EXTRA_ROUTE)
+            ?: intent?.getStringExtra(Notifications.EXTRA_TICKER)?.let { "detail/$it" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) tickerToOpen = intent?.getStringExtra(Notifications.EXTRA_TICKER)
+        if (savedInstanceState == null) routeToOpen = routeFrom(intent)
         val container = (application as BoursoSignalApp).container
 
         val requestNotif = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -36,10 +40,11 @@ class MainActivity : ComponentActivity() {
                 }
                 AppRoot(
                     container,
-                    openTicker = tickerToOpen,
-                    onTickerOpened = {
-                        tickerToOpen = null
+                    openRoute = routeToOpen,
+                    onRouteOpened = {
+                        routeToOpen = null
                         intent?.removeExtra(Notifications.EXTRA_TICKER) // pas de réouverture après rotation
+                        intent?.removeExtra(Notifications.EXTRA_ROUTE)
                     },
                 )
             }
@@ -50,6 +55,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra(Notifications.EXTRA_TICKER)?.let { tickerToOpen = it }
+        routeFrom(intent)?.let { routeToOpen = it }
     }
 }

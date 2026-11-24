@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import bzh.dargio.boursosignal.BoursoSignalApp
 import bzh.dargio.boursosignal.domain.signals.SignalType
+import bzh.dargio.boursosignal.widget.WidgetSnapshot
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -56,10 +57,15 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             // (b) Météo du marché, puis conseils sur les positions détenues (réel + test) :
             //     logique partagée avec la surveillance en séance et avec les écrans.
             PositionAlerts.checkRegime(applicationContext, container, now, refreshIndex = false)
-            PositionAlerts.checkHeld(applicationContext, container, now)
+            val pending = PositionAlerts.checkHeld(applicationContext, container, now)
+            PositionAlerts.checkPriceAlerts(applicationContext, container, now)
+
+            // (c) Bilan des conseils : mesure ceux dont le résultat à 5 / 20 séances est connu.
+            container.adviceRepository.evaluatePending(container.marketRepository)
 
             // 3. Preuve de bon fonctionnement : horodatage du dernier scan réussi.
             container.settings.lastScanAt = System.currentTimeMillis()
+            WidgetSnapshot.refresh(applicationContext, container, pending)
             Result.success()
         } catch (t: Throwable) {
             Result.retry()

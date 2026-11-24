@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BoursoSignal</string>
+    <string name="widget_label">BoursoSignal</string>
+    <string name="widget_description">Météo du marché, valeur de tes portefeuilles et conseils en attente.</string>
 </resources>

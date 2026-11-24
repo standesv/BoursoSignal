@@ -54,7 +54,9 @@ import bzh.dargio.boursosignal.data.local.TransactionEntity
 import bzh.dargio.boursosignal.data.universe.UniverseEntry
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.work.PositionAlerts
+import bzh.dargio.boursosignal.domain.signals.Diversification
 import bzh.dargio.boursosignal.domain.signals.ExitAction
+import bzh.dargio.boursosignal.domain.signals.HoldingWeight
 import bzh.dargio.boursosignal.domain.signals.ExitAdvice
 import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
 import bzh.dargio.boursosignal.domain.signals.FeeProfile
@@ -159,7 +161,7 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String, o
             val candles = container.marketRepository.refresh(p.ticker).getOrNull()
                 ?: container.marketRepository.cachedCandles(p.ticker)
             val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(
-                container, p.ticker, p.avgPrice, candles, cfg, regime, container.portfolioRepository.entryDate(p.ticker),
+                container, p.ticker, p.avgPrice, candles, cfg, regime, container.portfolioRepository.entryDate(p.ticker), "reel",
             ).also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, false, it, allowSell = true, allowTrim = true) } else null
             PositionView(p, candles.lastOrNull()?.close, candles.lastOrNull()?.date, advice)
         }.sortedBy { priority(it.advice?.action) }
@@ -195,6 +197,20 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String, o
                     color = if (pnl >= 0) BullGreen else BearRed)
             }
         }
+
+        // Diversification (§23-6) : poids par valeur et par secteur.
+        DiversificationCard(remember(views, cash) {
+            Diversification.warnings(
+                views.map { v ->
+                    HoldingWeight(
+                        v.position.ticker, nameOf(v.position.ticker),
+                        v.position.quantity * (v.price ?: v.position.avgPrice),
+                        container.marketScannerService.sectorOf(v.position.ticker),
+                    )
+                },
+                total,
+            )
+        })
 
         Text("Positions", fontWeight = FontWeight.SemiBold)
         if (views.isEmpty()) {
@@ -364,7 +380,7 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, o
             val price = candles.lastOrNull()?.close ?: p.avgPrice
             val date = candles.lastOrNull()?.date
             val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(
-                container, p.ticker, p.avgPrice, candles, cfg, regime, p.openedDate,
+                container, p.ticker, p.avgPrice, candles, cfg, regime, p.openedDate, "test",
             ).also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, true, it, allowSell = true, allowTrim = true) } else null
             map[p.ticker] = PriceInfo(price, date, advice)
         }
@@ -394,9 +410,23 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, o
             }
         }
 
+        // Diversification (§23-6) : poids par valeur et par secteur.
+        DiversificationCard(remember(positions, enriched) {
+            Diversification.warnings(
+                positions.map { p ->
+                    HoldingWeight(
+                        p.ticker, nameOf(p.ticker),
+                        p.quantity * (enriched[p.ticker]?.price ?: p.avgPrice),
+                        container.marketScannerService.sectorOf(p.ticker),
+                    )
+                },
+                equity,
+            )
+        })
+
         Text("Positions fictives", fontWeight = FontWeight.SemiBold)
         if (positions.isEmpty()) {
-            Text("Aucune position ouverte. Le mode auto agit sur signal, ou achète depuis la fiche d'une valeur.",
+            Text("Aucune position ouverte. Achète depuis la fiche d'une valeur (onglets Idées ou Valeurs).",
                 style = MaterialTheme.typography.bodySmall)
         } else positions.forEach { p ->
             PaperPositionCard(p, nameOf(p.ticker), today, enriched[p.ticker], onOpen = { onOpen(p.ticker) }, onSell = { sellTarget = p })

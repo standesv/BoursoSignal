@@ -34,6 +34,16 @@ object MarketClock {
         return !t.isBefore(OPEN) && t.isBefore(CLOSE.plusMinutes(16))
     }
 
+    /**
+     * Prochain créneau de surveillance (multiple de `stepMinutes`, strictement après
+     * `now`) : dans la séance si possible, sinon la prochaine ouverture (§23-9).
+     */
+    fun nextWatchSlot(now: LocalDateTime, stepMinutes: Long = 15): LocalDateTime {
+        val base = now.withSecond(0).withNano(0)
+        val candidate = base.plusMinutes(stepMinutes - base.minute % stepMinutes)
+        return if (isWatchTime(candidate)) candidate else nextOpen(now)
+    }
+
     /** Prochain fixing d'ouverture (9h00 d'un jour de Bourse) à partir de `now`. */
     fun nextOpen(now: LocalDateTime): LocalDateTime {
         var day = now.toLocalDate()

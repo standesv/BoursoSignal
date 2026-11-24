@@ -1,6 +1,7 @@
 package bzh.dargio.boursosignal.ui.screens
 
 import android.content.Intent
+import android.os.Build
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,13 +47,16 @@ import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.FeeProfile
 import bzh.dargio.boursosignal.domain.signals.Fees
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import bzh.dargio.boursosignal.work.ExactAlarms
 import bzh.dargio.boursosignal.work.Notifications
 import bzh.dargio.boursosignal.work.RefreshWorker
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
+fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit, onBilan: () -> Unit = {}) {
     val settings = container.settings
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -95,6 +100,22 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
     // Vérification des notifications.
     var testMsg by remember { mutableStateOf<String?>(null) }
 
+    // v3 : filtre PEA (§23-11) et alarmes exactes (§23-9).
+    var peaOnly by remember { mutableStateOf(settings.peaOnly) }
+    var exactAlarms by remember { mutableStateOf(ExactAlarms.canSchedule(context)) }
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                exactAlarms = ExactAlarms.canSchedule(context)
+                if (exactAlarms) ExactAlarms.scheduleNext(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Scaffold(topBar = { TopAppBar(title = { Text("Réglages") }) }) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
@@ -113,6 +134,22 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
             OutlinedButton(onClick = onBacktest, modifier = Modifier.fillMaxWidth()) {
                 Text("Tester la stratégie sur l'univers")
             }
+            OutlinedButton(onClick = onBilan, modifier = Modifier.fillMaxWidth()) {
+                Text("Bilan des conseils et de la semaine")
+            }
+
+            // ---- Idées : PEA (§23-11) ----
+            HorizontalDivider()
+            Text("Idées", fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Seulement les valeurs éligibles au PEA", modifier = Modifier.weight(1f))
+                Switch(checked = peaOnly, onCheckedChange = { peaOnly = it; settings.peaOnly = it })
+            }
+            Text(
+                "Les foncières SIIC (Gecina, Klépierre, Covivio, Icade, Unibail-Rodamco-Westfield, Altarea) ne " +
+                    "sont pas éligibles au PEA. Mention indicative, à confirmer auprès de Boursorama avant d'acheter.",
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             // ---- Stratégie : gestion du risque ----
             HorizontalDivider()
@@ -249,6 +286,24 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Tester les notifications") }
             testMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            // Alarmes exactes (§23-9) : réveil du téléphone toutes les 15 min pendant la séance.
+            Text(
+                if (exactAlarms) "Réveils exacts en séance : activés (vérification toutes les 15 min, même téléphone en veille)."
+                else "Réveils exacts en séance : non autorisés. Autorise-les pour être prévenu à temps même quand le téléphone est en veille.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (!exactAlarms && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Autoriser les alarmes exactes") }
+            }
             Text(
                 "Dernière vérification en arrière-plan : ${formatScan(settings.lastScanAt)}. Pendant la séance " +
                     "(lun–ven, 9h–17h45), tes positions sont vérifiées toutes les 15 min environ ; analyse " +

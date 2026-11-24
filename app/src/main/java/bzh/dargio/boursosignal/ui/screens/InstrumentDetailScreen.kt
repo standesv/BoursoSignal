@@ -88,6 +88,7 @@ fun InstrumentDetailScreen(
     var paperMsg by remember { mutableStateOf<String?>(null) }
     var selectedRange by remember { mutableStateOf(CHART_RANGES[2]) }
     var orderMode by remember { mutableStateOf<String?>(null) }
+    var suggestedQty by remember { mutableStateOf<Int?>(null) }
 
     val name = remember(ticker) { container.marketScannerService.displayName(ticker).ifBlank { ticker } }
 
@@ -108,6 +109,9 @@ fun InstrumentDetailScreen(
     val emaSlow = if (closes.isNotEmpty()) Indicators.ema(closes, config.emaSlowPeriod) else null
     val opp = remember(candles, config, regimeReading) { if (candles.isNotEmpty()) StanceEvaluator.evaluate(ticker, candles, config, regime = regimeReading?.regime) else null }
     val report = remember(candles, config) { if (candles.isNotEmpty()) Analyzer.analyze(candles, config) else null }
+    // Même lecture que l'onglet Idées quand le scan l'a analysée (secteur, force relative, calendrier).
+    val scannedOpps by container.marketScannerService.opportunities.collectAsState()
+    val shownOpp = scannedOpps.firstOrNull { it.ticker == ticker } ?: opp
 
     val price = candles.lastOrNull()?.close ?: 0.0
     val cash = paperAccount?.cash ?: 0.0
@@ -128,7 +132,7 @@ fun InstrumentDetailScreen(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (price > 0) "%.2f €".format(price) else "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                opp?.let {
+                shownOpp?.let {
                     val (label, color) = stanceLabel(it.stance)
                     Text(label, color = color, fontWeight = FontWeight.Bold)
                 }
@@ -148,6 +152,9 @@ fun InstrumentDetailScreen(
                     }
                 }
             }
+
+            // v3 : PEA et secteur, plan d'achat chiffré, calendrier, alertes de prix.
+            InstrumentExtras(container, ticker, name, shownOpp, config, onSuggestedQuantity = { suggestedQty = it })
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CHART_RANGES.forEach { r -> FilterChip(selected = selectedRange == r, onClick = { selectedRange = r }, label = { Text(r.label) }) }
@@ -211,7 +218,7 @@ fun InstrumentDetailScreen(
             val sheetState = rememberModalBottomSheetState()
             ModalBottomSheet(onDismissRequest = { orderMode = null }, sheetState = sheetState) {
                 OrderSheet(
-                    isBuy = orderMode == "BUY", name = name, price = price, cash = cash, heldQty = heldQty,
+                    isBuy = orderMode == "BUY", name = name, price = price, cash = cash, heldQty = heldQty, suggested = suggestedQty,
                     onBuyShares = { n -> scope.launch { paperMsg = buyMsg(container.paperRepository.buyShares(ticker, price, n)); orderMode = null } },
                     onBuyAmount = { amt -> scope.launch { paperMsg = buyMsg(container.paperRepository.buyAmount(ticker, price, amt)); orderMode = null } },
                     onSellShares = { n -> scope.launch { paperMsg = sellMsg(container.paperRepository.sellShares(ticker, price, n)); orderMode = null } },
@@ -225,7 +232,7 @@ fun InstrumentDetailScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OrderSheet(
-    isBuy: Boolean, name: String, price: Double, cash: Double, heldQty: Double,
+    isBuy: Boolean, name: String, price: Double, cash: Double, heldQty: Double, suggested: Int? = null,
     onBuyShares: (Int) -> Unit, onBuyAmount: (Double) -> Unit, onSellShares: (Int) -> Unit, onSellAll: () -> Unit,
 ) {
     var byAmount by remember { mutableStateOf(false) }
@@ -256,6 +263,9 @@ private fun OrderSheet(
                 FilterChip(false, { input = (cash * 0.5).toInt().toString() }, { Text("50%") })
                 FilterChip(false, { input = cash.toInt().toString() }, { Text("Max") })
             } else if (isBuy) {
+                if (suggested != null && suggested > 0) {
+                    FilterChip(false, { input = suggested.toString() }, { Text("Conseillé ($suggested)") })
+                }
                 FilterChip(false, { input = maxShares.toString() }, { Text("Max ($maxShares)") })
             } else {
                 FilterChip(false, { input = (heldInt / 2).toString() }, { Text("50%") })

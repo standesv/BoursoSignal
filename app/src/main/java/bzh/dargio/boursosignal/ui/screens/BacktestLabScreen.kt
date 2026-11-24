@@ -33,9 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import bzh.dargio.boursosignal.di.AppContainer
-import bzh.dargio.boursosignal.domain.signals.BacktestLab
-import bzh.dargio.boursosignal.domain.signals.LabResult
 import bzh.dargio.boursosignal.domain.signals.MarketRegimeEvaluator
+import bzh.dargio.boursosignal.domain.signals.RealisticBacktestLab
+import bzh.dargio.boursosignal.domain.signals.RealisticLabResult
 import bzh.dargio.boursosignal.ui.theme.BearRed
 import bzh.dargio.boursosignal.ui.theme.BullGreen
 import kotlinx.coroutines.Dispatchers
@@ -46,8 +46,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<LabResult?>(null) }
-    var noFilter by remember { mutableStateOf<LabResult?>(null) }
+    var result by remember { mutableStateOf<RealisticLabResult?>(null) }
+    var noFilter by remember { mutableStateOf<RealisticLabResult?>(null) }
+    var feeLabel by remember { mutableStateOf("") }
     var hasIndex by remember { mutableStateOf(true) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val scope = rememberCoroutineScope()
@@ -65,11 +66,11 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Cet outil teste ta stratégie sur tout l'univers, valeur par valeur, à partir des données en cache. " +
-                    "Pour chaque valeur il compare deux scénarios sur l'historique : d'un côté ta stratégie " +
-                    "(achats et ventes aux signaux), de l'autre un simple achat au début puis conservation " +
-                    "jusqu'à aujourd'hui, sans rien faire. Lance d'abord un scan depuis l'onglet Idées pour " +
-                    "disposer des données.",
+                "Ce backtest rejoue, jour après jour, les conseils que l'app t'aurait donnés : achat quand Idées " +
+                    "dit « Achat », vente totale sur « Vendre », vente de la moitié sur « Alléger ». Comme dans la " +
+                    "vraie vie, chaque ordre est passé à l'ouverture de la séance suivante et paie les frais de ton " +
+                    "profil Boursorama. Il compare le résultat à un simple achat-conservation. Lance d'abord un scan " +
+                    "depuis l'onglet Idées pour disposer des données.",
                 style = MaterialTheme.typography.bodyMedium,
             )
 
@@ -85,9 +86,11 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
                                 .filterValues { it.isNotEmpty() }
                             // Rejoue la météo du marché jour par jour, puis compare avec / sans filtre.
                             val index = container.marketRepository.cachedCandles(MarketRegimeEvaluator.INDEX_TICKER)
+                            val fee = container.settings.activeFeeProfile()
+                            feeLabel = fee.label
                             Triple(
-                                BacktestLab.run(data, cfg, index),
-                                BacktestLab.run(data, cfg.copy(useMarketFilter = false), index),
+                                RealisticBacktestLab.run(data, cfg, index, fee),
+                                RealisticBacktestLab.run(data, cfg.copy(useMarketFilter = false), index, fee),
                                 index.size >= MarketRegimeEvaluator.MIN_HISTORY,
                             )
                         }
@@ -132,6 +135,17 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
                             )
                         }
                         HorizontalDivider()
+                        Text("Résultat sur deux périodes (la stratégie tient-elle sur des marchés différents ?)",
+                            style = MaterialTheme.typography.labelMedium)
+                        MetricRow("1re moitié · stratégie / achat-cons.",
+                            "%+.1f %% / %+.1f %%".format(r.avgFirstHalfPct, r.avgBhFirstHalfPct), r.avgFirstHalfPct >= r.avgBhFirstHalfPct)
+                        MetricRow("2de moitié · stratégie / achat-cons.",
+                            "%+.1f %% / %+.1f %%".format(r.avgSecondHalfPct, r.avgBhSecondHalfPct), r.avgSecondHalfPct >= r.avgBhSecondHalfPct)
+                        Text(
+                            "${r.totalTrades} achats simulés · frais payés : %.0f € (profil $feeLabel, 2 000 € par valeur).".format(r.totalFeesEuros),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        HorizontalDivider()
                         Text(
                             "La stratégie bat l'achat-conservation sur ${r.beatCount} / ${r.count} valeurs.",
                             fontWeight = FontWeight.SemiBold,
@@ -145,7 +159,7 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "Comment lire : « Stratégie » = gain/perte en suivant les signaux ; " +
+                            "Comment lire : « Stratégie » = gain/perte en suivant les conseils de l'app, frais déduits ; " +
                                 "« Achat-cons. » = gain/perte si tu avais seulement gardé la valeur ; " +
                                 "« écart » = différence (positif = la stratégie a fait mieux).",
                             style = MaterialTheme.typography.bodySmall,
@@ -179,10 +193,10 @@ fun BacktestLabScreen(container: AppContainer, onOpen: (String) -> Unit, onBack:
                 }
 
                 Text(
-                    "Écart = stratégie − achat-conservation. Hypothèses : exécution à la clôture, 100 % investi / " +
-                        "100 % liquide, sans frais. La météo du marché est rejouée jour par jour sans regarder le futur " +
-                        "(blocage des achats) ; l'allègement conseillé en marché baissier n'est pas simulé. Les " +
-                        "performances passées ne préjugent pas des résultats futurs.",
+                    "Écart = stratégie − achat-conservation. Hypothèses : 2 000 € par valeur, ordres à l'ouverture " +
+                        "de la séance suivante, frais du profil actif ; météo du marché et stop suiveur rejoués jour " +
+                        "par jour sans regarder le futur. Non simulés : actualité, force relative et secteurs, " +
+                        "calendrier des résultats. Les performances passées ne préjugent pas des résultats futurs.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

@@ -27,9 +27,7 @@ class PositionWatchWorker(appContext: Context, params: WorkerParameters) : Corou
         if (!MarketClock.isWatchTime(now)) return Result.success()
         val container = (applicationContext as BoursoSignalApp).container
         return try {
-            PositionAlerts.checkRegime(applicationContext, container, now, refreshIndex = true)
-            PositionAlerts.checkHeld(applicationContext, container, now)
-            container.settings.lastScanAt = System.currentTimeMillis()
+            PositionWatch.runOnce(applicationContext, container, now)
             Result.success()
         } catch (t: Throwable) {
             Result.retry()

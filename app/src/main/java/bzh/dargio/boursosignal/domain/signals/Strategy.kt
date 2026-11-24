@@ -72,6 +72,19 @@ data class StrategyConfig(
     val useMarketFilter: Boolean = true,
     val cautionBuyExtra: Double = 0.5,          // score d'achat supplémentaire exigé (marché fragile)
     val cautionStanceThreshold: Double = 0.65,  // score de tendance exigé pour « Achat » (marché fragile)
+
+    // --- v3 (§23) : plan chiffré, diversification, secteurs, calendrier ---
+    val useTradePlanFilter: Boolean = true,
+    val minRewardRisk: Double = 1.5,        // en dessous : résistance trop proche, pas d'achat
+    val targetRiskMultiple: Double = 2.0,   // objectif par défaut = 2 × le risque
+    val resistanceLookback: Int = 120,      // séances pour chercher la résistance (plus haut récent)
+    val riskPerTradePct: Double = 1.0,      // % du capital risqué si le stop est touché
+    val maxPositionPct: Double = 20.0,      // poids maximal d'une valeur
+    val maxSectorPct: Double = 40.0,        // poids maximal d'un secteur
+    val maxPerSector: Int = 3,              // nombre de positions dans un secteur déclenchant un avertissement
+    val useSectorStrength: Boolean = true,
+    val sectorWeight: Double = 0.1,         // bonus / malus de score pour un secteur fort / faible
+    val earningsBlackoutDays: Int = 3,      // pas d'achat proposé dans ces jours avant une publication
 ) {
     /** Nombre minimal de bougies pour que les indicateurs de base soient définis. */
     val minHistory: Int

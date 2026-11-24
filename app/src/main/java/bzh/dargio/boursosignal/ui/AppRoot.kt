@@ -27,6 +27,7 @@ import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.ui.screens.AlertsScreen
 import bzh.dargio.boursosignal.ui.screens.BacktestLabScreen
 import bzh.dargio.boursosignal.ui.screens.BacktestScreen
+import bzh.dargio.boursosignal.ui.screens.BilanScreen
 import bzh.dargio.boursosignal.ui.screens.DashboardScreen
 import bzh.dargio.boursosignal.ui.screens.InstrumentDetailScreen
 import bzh.dargio.boursosignal.ui.screens.PortfolioScreen
@@ -45,7 +46,7 @@ private sealed class Dest(val route: String, val label: String, val icon: ImageV
 private val bottomDestinations = listOf(Dest.Ideas, Dest.Watchlist, Dest.Portfolio, Dest.Alerts, Dest.Settings)
 
 @Composable
-fun AppRoot(container: AppContainer, openTicker: String? = null, onTickerOpened: () -> Unit = {}) {
+fun AppRoot(container: AppContainer, openRoute: String? = null, onRouteOpened: () -> Unit = {}) {
     val navController = rememberNavController()
 
     Scaffold(
@@ -83,6 +84,7 @@ fun AppRoot(container: AppContainer, openTicker: String? = null, onTickerOpened:
                         }
                     },
                     onSearch = { navController.navigate("search") },
+                    onBilan = { navController.navigate("bilan") },
                 )
             }
             composable(Dest.Watchlist.route) {
@@ -97,10 +99,17 @@ fun AppRoot(container: AppContainer, openTicker: String? = null, onTickerOpened:
             }
             composable(Dest.Alerts.route) { AlertsScreen(container, onOpen = { navController.navigate("detail/$it") }) }
             composable(Dest.Settings.route) {
-                SettingsScreen(container, onBacktest = { navController.navigate("backtestlab") })
+                SettingsScreen(
+                    container,
+                    onBacktest = { navController.navigate("backtestlab") },
+                    onBilan = { navController.navigate("bilan") },
+                )
             }
             composable("search") {
                 SearchScreen(container = container, onBack = { navController.popBackStack() }, onOpen = { navController.navigate("detail/$it") })
+            }
+            composable("bilan") {
+                BilanScreen(container, onBack = { navController.popBackStack() }, onOpen = { navController.navigate("detail/$it") })
             }
             composable("backtestlab") {
                 BacktestLabScreen(container, onOpen = { navController.navigate("detail/$it") }, onBack = { navController.popBackStack() })
@@ -116,10 +125,12 @@ fun AppRoot(container: AppContainer, openTicker: String? = null, onTickerOpened:
         }
     }
 
-    // Appui sur une notification : ouverture directe de la fiche de la valeur.
-    LaunchedEffect(openTicker) {
-        val ticker = openTicker ?: return@LaunchedEffect
-        navController.navigate("detail/$ticker") { launchSingleTop = true }
-        onTickerOpened()
+    // Appui sur une notification : ouverture directe de la fiche d'une valeur ou du Bilan.
+    LaunchedEffect(openRoute) {
+        val route = openRoute ?: return@LaunchedEffect
+        if (route == "bilan" || route.startsWith("detail/")) {
+            runCatching { navController.navigate(route) { launchSingleTop = true } }
+        }
+        onRouteOpened()
     }
 }

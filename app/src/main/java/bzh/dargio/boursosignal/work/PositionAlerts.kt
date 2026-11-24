@@ -3,12 +3,14 @@ package bzh.dargio.boursosignal.work
 import android.content.Context
 import bzh.dargio.boursosignal.di.AppContainer
 import bzh.dargio.boursosignal.domain.signals.Candle
+import bzh.dargio.boursosignal.domain.signals.EarningsGuard
 import bzh.dargio.boursosignal.domain.signals.ExitAction
 import bzh.dargio.boursosignal.domain.signals.ExitAdvice
 import bzh.dargio.boursosignal.domain.signals.ExitAdvisor
 import bzh.dargio.boursosignal.domain.signals.MarketRegimeEvaluator
 import bzh.dargio.boursosignal.domain.signals.NewsAnalyzer
 import bzh.dargio.boursosignal.domain.signals.NewsSentiment
+import bzh.dargio.boursosignal.domain.signals.PriceAlertRule
 import bzh.dargio.boursosignal.domain.signals.Regime
 import bzh.dargio.boursosignal.domain.signals.StrategyConfig
 import kotlinx.coroutines.flow.first
@@ -26,6 +28,7 @@ object PositionAlerts {
     private data class Held(val ticker: String, val avgPrice: Double, val isTest: Boolean, val entryDate: String?)
 
     private const val NEWS_TTL_MS = 30 * 60 * 1000L
+    private val ATTENTION = setOf("SELL", "TRIM")
     private val newsCache = ConcurrentHashMap<String, Pair<Long, NewsSentiment>>()
     @Volatile private var universeNames: Map<String, String>? = null
 
@@ -38,12 +41,16 @@ object PositionAlerts {
         cfg: StrategyConfig,
         regime: Regime?,
         entryDate: String? = null,
+        portfolio: String? = null,   // "reel" | "test" : enregistre le conseil pour le bilan (§23-1)
     ): ExitAdvice {
         val advice = ExitAdvisor.advise(
             ticker, candles, avgPrice, cfg, sentimentFor(container, ticker),
             lastTrimPrice = container.settings.trimAnchor(ticker), regime = regime, entryDate = entryDate,
         )
         container.settings.setTrimAnchor(ticker, advice.trimAnchor)
+        if (portfolio != null && advice.action != ExitAction.HOLD && candles.isNotEmpty()) {
+            container.adviceRepository.record(ticker, advice.action.name, portfolio, candles.last().date, advice.price, regime?.name)
+        }
         return advice
     }
 
@@ -87,7 +94,7 @@ object PositionAlerts {
      * détection, même hors de la plage choisie, mais jamais la nuit (22h–7h : délivré
      * au premier passage du matin) ; « Alléger » respecte la plage horaire.
      */
-    suspend fun checkHeld(context: Context, container: AppContainer, now: LocalDateTime) {
+    suspend fun checkHeld(context: Context, container: AppContainer, now: LocalDateTime): Int {
         val settings = container.settings
         val cfg = container.strategyRepository.activeConfig()
         val regime = container.marketScannerService.regimeFromCache()?.regime
@@ -103,13 +110,67 @@ object PositionAlerts {
                 held += Held(p.ticker, p.avgPrice, true, p.openedDate)
             }
         }
+        var pending = 0
+        val today = now.toLocalDate().toString()
+        val calendarChecked = HashSet<String>()
         for (h in held) {
             val candles = container.marketRepository.refresh(h.ticker).getOrNull()
                 ?: container.marketRepository.cachedCandles(h.ticker)
             if (candles.isEmpty()) continue
-            val advice = adviceFor(container, h.ticker, h.avgPrice, candles, cfg, regime, h.entryDate)
+            val advice = adviceFor(container, h.ticker, h.avgPrice, candles, cfg, regime, h.entryDate, if (h.isTest) "test" else "reel")
+            if (advice.action != ExitAction.HOLD) pending++
             notifyIfNew(context, container, h.ticker, h.isTest, advice, allowSell = inWindow || daytime, allowTrim = inWindow)
+            if (inWindow && calendarChecked.add(h.ticker)) checkEarnings(context, container, h.ticker, today, cfg.earningsBlackoutDays)
         }
+        return pending
+    }
+
+    /** Publication de résultats proche sur une position détenue : une alerte par publication (§23-4). */
+    private suspend fun checkEarnings(context: Context, container: AppContainer, ticker: String, today: String, days: Int) {
+        val events = container.calendarRepository.events(ticker) ?: return
+        val date = events.earningsDate ?: return
+        if (!EarningsGuard.earningsSoon(today, events, days)) return
+        if (container.settings.earningsNotified(ticker) == date) return
+        Notifications.notifyEarnings(context, ticker, displayName(container, ticker), date)
+        container.settings.setEarningsNotified(ticker, date)
+    }
+
+    /**
+     * Alertes de prix (§23-5) : notifiées une seule fois au franchissement du seuil,
+     * en journée ; l'alerte se désactive ensuite.
+     */
+    suspend fun checkPriceAlerts(context: Context, container: AppContainer, now: LocalDateTime) {
+        val alerts = container.priceAlertRepository.active()
+        if (alerts.isEmpty()) return
+        val settings = container.settings
+        val allowed = settings.notificationsEnabled && (settings.isWithinNotifyWindow(now) || now.hour in 7..21)
+        if (!allowed) return
+        for ((ticker, list) in alerts.groupBy { it.ticker }) {
+            val candles = container.marketRepository.refresh(ticker).getOrNull()
+                ?: container.marketRepository.cachedCandles(ticker)
+            val price = candles.lastOrNull()?.close ?: continue
+            for (a in list) {
+                if (PriceAlertRule.isTriggered(a.above, a.level, price)) {
+                    Notifications.notifyPriceAlert(context, a.id, ticker, displayName(container, ticker), a.above, a.level, price)
+                    container.priceAlertRepository.markTriggered(a.id, price)
+                }
+            }
+        }
+    }
+
+    /** Positions dont le dernier conseil notifié est « Vendre » ou « Alléger » (à surveiller). */
+    suspend fun attentionNames(container: AppContainer): List<String> {
+        val settings = container.settings
+        val names = LinkedHashSet<String>()
+        for (p in container.portfolioRepository.observePositions().first()) {
+            if (settings.lastExitNotified(p.ticker) in ATTENTION) names += displayName(container, p.ticker)
+        }
+        if (container.paperRepository.isEnabled()) {
+            for (p in container.paperRepository.observePositions().first()) {
+                if (settings.lastExitNotified("test:${p.ticker}") in ATTENTION) names += displayName(container, p.ticker)
+            }
+        }
+        return names.toList()
     }
 
     /** Prévient quand la météo du marché (CAC 40) change — une alerte par changement. */

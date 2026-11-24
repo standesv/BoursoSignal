@@ -19,8 +19,10 @@ import bzh.dargio.boursosignal.domain.signals.StrategyConfig
         PaperAccountEntity::class,
         PaperPositionEntity::class,
         PaperTradeEntity::class,
+        AdviceLogEntity::class,
+        PriceAlertEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +32,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun signalDao(): SignalDao
     abstract fun strategyDao(): StrategyDao
     abstract fun paperDao(): PaperDao
+    abstract fun adviceDao(): AdviceDao
+    abstract fun priceAlertDao(): PriceAlertDao
 
     companion object {
         /**
@@ -45,7 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "boursosignal.db")
-                // .addMigrations(MIGRATION_4_5, …)  // à ajouter lors des futurs changements de schéma
+                .addMigrations(MIGRATION_4_5) // v3 : bilan des conseils + alertes de prix (données conservées)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }

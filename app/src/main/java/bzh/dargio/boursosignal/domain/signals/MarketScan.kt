@@ -66,6 +66,8 @@ data class Opportunity(
     val price: Double,
     val date: String,
     val risk: RiskLevel = RiskLevel.MEDIUM,
+    val plan: TradePlan? = null,     // plan chiffré (stop, objectif, gain/risque) pour un achat
+    val sector: String? = null,
 )
 
 /**
@@ -81,6 +83,8 @@ object StanceEvaluator {
         config: StrategyConfig = StrategyConfig(),
         benchCloses: List<Double>? = null,
         regime: Regime? = null,
+        sector: String? = null,
+        sectorRsPct: Double? = null,
     ): Opportunity {
         val last = candles.lastOrNull()
             ?: return Opportunity(ticker, Stance.NEUTRAL, 0.0, listOf("Pas de donnée"), 0.0, "")
@@ -145,6 +149,14 @@ object StanceEvaluator {
             }
         }
 
+        // Force du secteur : privilégier les secteurs qui battent le CAC 40.
+        if (config.useSectorStrength && !sector.isNullOrBlank() && sectorRsPct != null) {
+            when {
+                sectorRsPct > 2.0 -> { score += config.sectorWeight; reasons += "Secteur $sector en forme (+${fmt(sectorRsPct)} pts vs CAC 40 / ~3 mois)" }
+                sectorRsPct < -2.0 -> { score -= config.sectorWeight; reasons += "Secteur $sector à la peine (${fmt(sectorRsPct)} pts vs CAC 40 / ~3 mois)" }
+            }
+        }
+
         val risk = Analyzer.riskFrom(Analyzer.annualVolatilityPct(closes))
         if (risk == RiskLevel.HIGH) { score -= 0.1; reasons += "Volatilité élevée (risque accru)" }
 
@@ -174,7 +186,14 @@ object StanceEvaluator {
                 else -> {}
             }
         }
-        return Opportunity(ticker, stance, score, reasons, last.close, last.date, risk)
+        // Plan chiffré : pas d'achat quand une résistance proche limite trop le gain potentiel.
+        val plan = if (stance == Stance.BUY || stance == Stance.WATCH) TradePlanner.plan(candles, config) else null
+        if (config.useTradePlanFilter && stance == Stance.BUY && plan != null && plan.rewardRisk < config.minRewardRisk) {
+            stance = Stance.WATCH
+            reasons += "Résistance proche (${fmt(plan.resistance ?: plan.target)} €) : rapport gain/risque " +
+                "${fmt(plan.rewardRisk)} insuffisant (minimum ${fmt(config.minRewardRisk)})"
+        }
+        return Opportunity(ticker, stance, score, reasons, last.close, last.date, risk, plan, sector)
     }
 
     private fun fmt(v: Double): String = ((v * 10).toInt() / 10.0).toString()
@@ -195,13 +214,18 @@ object MarketScanner {
         minAvgTurnover: Double = 200_000.0,
         benchmark: List<Candle>? = null,
         regime: Regime? = null,
+        sectors: Map<String, String>? = null,
     ): List<Opportunity> {
         val benchCloses = benchmark?.closes()
-        return data.entries
-            .filter { (_, candles) ->
-                DataQuality.check(candles, referenceDate, minHistory, minAvgTurnover = minAvgTurnover).ok
+        val reliable = data.filter { (_, candles) ->
+            DataQuality.check(candles, referenceDate, minHistory, minAvgTurnover = minAvgTurnover).ok
+        }
+        val sectorRs = if (sectors != null && benchCloses != null) SectorStrength.compute(reliable, sectors, benchCloses) else emptyMap()
+        return reliable.entries
+            .map { (ticker, candles) ->
+                val sector = sectors?.get(ticker)?.takeIf { it.isNotBlank() }
+                StanceEvaluator.evaluate(ticker, candles, config, benchCloses, regime, sector, sector?.let { sectorRs[it] })
             }
-            .map { (ticker, candles) -> StanceEvaluator.evaluate(ticker, candles, config, benchCloses, regime) }
             .sortedByDescending { it.score }
     }
 }
