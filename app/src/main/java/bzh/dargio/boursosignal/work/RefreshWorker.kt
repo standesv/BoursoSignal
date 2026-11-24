@@ -29,37 +29,27 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         val container = app.container
         return try {
             // 1. Rafraîchissement des données (toujours, quelle que soit l'heure).
-            val emitted = container.signalRefresher.refreshAll()
-            val paperTrades = container.paperTradingService.apply(emitted)
+            // Aucun ordre n'est passé automatiquement (ni achat ni vente, même en test) :
+            // les signaux sont seulement enregistrés puis notifiés.
+            container.signalRefresher.refreshAll()
             container.marketScannerService.scan()
 
             // 2. Notifications.
             val now = LocalDateTime.now(ZoneId.of("Europe/Paris"))
             val inWindow = container.settings.notificationsEnabled && container.settings.isWithinNotifyWindow(now)
 
-            // (a) Signaux de la watchlist + ordres fictifs : uniquement dans la plage autorisée.
+            // (a) Signaux de la watchlist : uniquement dans la plage autorisée.
             if (inWindow) {
                 container.signalRepository.unhandled().forEachIndexed { index, s ->
                     Notifications.notifySignal(
                         context = applicationContext,
                         id = (s.ticker.hashCode() and 0xffff) + index,
                         ticker = s.ticker,
-                        name = container.marketScannerService.displayName(s.ticker),
+                        name = PositionAlerts.displayName(container, s.ticker),
                         type = runCatching { SignalType.valueOf(s.type) }.getOrDefault(SignalType.NONE),
                         reasons = s.reasons,
                     )
                     container.signalRepository.setHandled(s.id, true)
-                }
-                val nameByTicker = emitted.associate { it.ticker to it.name }
-                paperTrades.forEach { t ->
-                    Notifications.notifyPaperTrade(
-                        applicationContext,
-                        (t.ticker.hashCode() and 0xffff) + 3,
-                        t.ticker,
-                        nameByTicker[t.ticker] ?: container.marketScannerService.displayName(t.ticker),
-                        t.type,
-                        t.qty,
-                    )
                 }
             }
 

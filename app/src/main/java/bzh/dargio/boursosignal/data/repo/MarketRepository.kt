@@ -40,9 +40,15 @@ class MarketRepository(
                 CandleEntity(ticker, it.date, it.open, it.high, it.low, it.close, it.volume)
             })
         }
-        return result.recoverCatching {
-            val cache = cachedCandles(ticker)
-            if (cache.isNotEmpty()) cache else throw it
-        }
+        // Source unique : on renvoie toujours la série CONSOLIDÉE en base (historique +
+        // mise à jour), pour que tous les écrans, les conseils et les alertes travaillent
+        // exactement sur les mêmes cours. En cas d'échec réseau, le cache sert de repli.
+        return result.fold(
+            onSuccess = { fresh -> Result.success(cachedCandles(ticker).ifEmpty { fresh }) },
+            onFailure = { error ->
+                val cache = cachedCandles(ticker)
+                if (cache.isNotEmpty()) Result.success(cache) else Result.failure(error)
+            },
+        )
     }
 }

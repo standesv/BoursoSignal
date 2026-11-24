@@ -62,7 +62,7 @@ private val AMBER = Color(0xFFF59E0B)
 private val GREY = Color(0xFF6B7280)
 
 /** Détention d'une valeur, réelle ou fictive (mode test). */
-private data class HeldInfo(val avgPrice: Double, val source: String)
+private data class HeldInfo(val avgPrice: Double, val source: String, val entryDate: String? = null)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,7 +89,7 @@ fun DashboardScreen(
     // Valeurs détenues, réelles OU fictives. Le réel l'emporte si détenu dans les deux.
     val heldByTicker = remember(realPositions, paperPositions) {
         val m = HashMap<String, HeldInfo>()
-        paperPositions.forEach { m[it.ticker] = HeldInfo(it.avgPrice, "test") }
+        paperPositions.forEach { m[it.ticker] = HeldInfo(it.avgPrice, "test", it.openedDate) }
         realPositions.forEach { m[it.ticker] = HeldInfo(it.avgPrice, "réel") }
         m
     }
@@ -107,7 +107,8 @@ fun DashboardScreen(
             val candles = container.marketRepository.cachedCandles(opp.ticker)
                 .ifEmpty { container.marketRepository.refresh(opp.ticker).getOrNull() ?: emptyList() }
             if (candles.isNotEmpty()) {
-                val advice = PositionAlerts.adviceFor(container, opp.ticker, held.avgPrice, candles, cfg, regimeReading?.regime)
+                val entryDate = held.entryDate ?: container.portfolioRepository.entryDate(opp.ticker)
+                val advice = PositionAlerts.adviceFor(container, opp.ticker, held.avgPrice, candles, cfg, regimeReading?.regime, entryDate)
                 // Ce qui est affiché est aussi notifié (une seule fois par changement d'avis).
                 PositionAlerts.notifyIfNew(alertContext, container, opp.ticker, held.source == "test", advice,
                     allowSell = true, allowTrim = true)

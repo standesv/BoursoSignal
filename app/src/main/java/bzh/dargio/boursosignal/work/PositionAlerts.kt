@@ -23,6 +23,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object PositionAlerts {
 
+    private data class Held(val ticker: String, val avgPrice: Double, val isTest: Boolean, val entryDate: String?)
+
     private const val NEWS_TTL_MS = 30 * 60 * 1000L
     private val newsCache = ConcurrentHashMap<String, Pair<Long, NewsSentiment>>()
     @Volatile private var universeNames: Map<String, String>? = null
@@ -35,10 +37,11 @@ object PositionAlerts {
         candles: List<Candle>,
         cfg: StrategyConfig,
         regime: Regime?,
+        entryDate: String? = null,
     ): ExitAdvice {
         val advice = ExitAdvisor.advise(
             ticker, candles, avgPrice, cfg, sentimentFor(container, ticker),
-            lastTrimPrice = container.settings.trimAnchor(ticker), regime = regime,
+            lastTrimPrice = container.settings.trimAnchor(ticker), regime = regime, entryDate = entryDate,
         )
         container.settings.setTrimAnchor(ticker, advice.trimAnchor)
         return advice
@@ -68,11 +71,11 @@ object PositionAlerts {
         val key = advice.action.name
         when (advice.action) {
             ExitAction.SELL -> if (key != already && allowSell) {
-                Notifications.notifyExit(context, baseId + 1, ticker, reason, label)
+                Notifications.notifyExit(context, baseId + 1, ticker, displayName(container, ticker), reason, label)
                 settings.setLastExitNotified(dedupKey, key)
             }
             ExitAction.TRIM -> if (key != already && allowTrim) {
-                Notifications.notifyTrim(context, baseId + 4, ticker, reason, label)
+                Notifications.notifyTrim(context, baseId + 4, ticker, displayName(container, ticker), reason, label)
                 settings.setLastExitNotified(dedupKey, key)
             }
             ExitAction.HOLD -> settings.setLastExitNotified(dedupKey, null)
@@ -91,17 +94,21 @@ object PositionAlerts {
         val inWindow = settings.notificationsEnabled && settings.isWithinNotifyWindow(now)
         val daytime = now.hour in 7..21
 
-        val held = mutableListOf<Triple<String, Double, Boolean>>()
-        container.portfolioRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, false) }
-        if (container.paperRepository.isEnabled()) {
-            container.paperRepository.observePositions().first().forEach { held += Triple(it.ticker, it.avgPrice, true) }
+        val held = mutableListOf<Held>()
+        for (p in container.portfolioRepository.observePositions().first()) {
+            held += Held(p.ticker, p.avgPrice, false, container.portfolioRepository.entryDate(p.ticker))
         }
-        for ((ticker, avgPrice, isTest) in held) {
-            val candles = container.marketRepository.refresh(ticker).getOrNull()
-                ?: container.marketRepository.cachedCandles(ticker)
+        if (container.paperRepository.isEnabled()) {
+            for (p in container.paperRepository.observePositions().first()) {
+                held += Held(p.ticker, p.avgPrice, true, p.openedDate)
+            }
+        }
+        for (h in held) {
+            val candles = container.marketRepository.refresh(h.ticker).getOrNull()
+                ?: container.marketRepository.cachedCandles(h.ticker)
             if (candles.isEmpty()) continue
-            val advice = adviceFor(container, ticker, avgPrice, candles, cfg, regime)
-            notifyIfNew(context, container, ticker, isTest, advice, allowSell = inWindow || daytime, allowTrim = inWindow)
+            val advice = adviceFor(container, h.ticker, h.avgPrice, candles, cfg, regime, h.entryDate)
+            notifyIfNew(context, container, h.ticker, h.isTest, advice, allowSell = inWindow || daytime, allowTrim = inWindow)
         }
     }
 
@@ -150,13 +157,14 @@ object PositionAlerts {
     private suspend fun sentimentFor(container: AppContainer, ticker: String): NewsSentiment {
         val nowMs = System.currentTimeMillis()
         newsCache[ticker]?.let { (at, s) -> if (nowMs - at < NEWS_TTL_MS) return s }
-        val news = container.newsProvider.forQuery(nameOf(container, ticker)).getOrDefault(emptyList())
+        val news = container.newsProvider.forQuery(displayName(container, ticker)).getOrDefault(emptyList())
         val s = NewsAnalyzer.sentimentOf(news.map { it.title }).first
         newsCache[ticker] = nowMs to s
         return s
     }
 
-    private fun nameOf(container: AppContainer, ticker: String): String {
+    /** Nom de l'entreprise (ex. « Accor ») plutôt que son code boursier (« AC.PA »). */
+    fun displayName(container: AppContainer, ticker: String): String {
         val shown = container.marketScannerService.displayName(ticker)
         if (shown.isNotBlank() && shown != ticker) return shown
         val names = universeNames

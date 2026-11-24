@@ -13,8 +13,15 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
 
     /**
      * @param regime météo du marché (CAC 40) à la date évaluée ; null = pas de filtre.
+     * @param entryDate date d'achat de la position (ISO) : le stop suiveur se mesure
+     *                  depuis l'achat, jamais sur un plus haut antérieur à l'achat.
      */
-    fun evaluate(candles: List<Candle>, avgEntryPrice: Double? = null, regime: Regime? = null): SignalResult {
+    fun evaluate(
+        candles: List<Candle>,
+        avgEntryPrice: Double? = null,
+        regime: Regime? = null,
+        entryDate: String? = null,
+    ): SignalResult {
         val last = candles.lastOrNull()
             ?: return SignalResult(SignalType.NONE, 0.0, emptyList(), "", 0.0)
 
@@ -129,7 +136,14 @@ class SignalEngine(private val config: StrategyConfig = StrategyConfig()) {
                 sellReasons += "Stop de volatilité (ATR) atteint"
             }
             if (config.useTrailingStop && atr != null && atr > 0.0) {
-                val recentHigh = closes.takeLast(config.trailingPeriod).maxOrNull()
+                // Plus haut DEPUIS L'ACHAT : un sommet atteint avant l'achat n'est pas un gain à
+                // protéger (sinon une valeur achetée sur repli serait aussitôt « à vendre »).
+                // Date d'achat inconnue : on ne protège que des gains (cours au-dessus du PRU).
+                val recentHigh = when {
+                    entryDate != null -> candles.filter { it.date >= entryDate }.maxOfOrNull { it.close }
+                    last.close > avgEntryPrice -> closes.takeLast(config.trailingPeriod).maxOrNull()
+                    else -> null
+                }
                 if (recentHigh != null && last.close <= recentHigh - config.trailingAtrMultiple * atr) {
                     sellScore += config.sellThreshold
                     sellReasons += "Stop suiveur : repli depuis le plus haut récent (${fmt(recentHigh)})"

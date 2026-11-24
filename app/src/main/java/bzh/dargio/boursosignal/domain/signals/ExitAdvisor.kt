@@ -31,6 +31,7 @@ object ExitAdvisor {
         news: NewsSentiment = NewsSentiment.NEUTRAL,
         lastTrimPrice: Double? = null,
         regime: Regime? = null,
+        entryDate: String? = null,
     ): ExitAdvice {
         val last = candles.lastOrNull()
             ?: return ExitAdvice(ticker, ExitAction.HOLD, 0.0, 0.0, listOf("Pas de donnée"))
@@ -40,7 +41,7 @@ object ExitAdvisor {
         var sell = 0
 
         // Signal du moteur, évalué AVEC le prix de revient (stop-loss / take-profit inclus).
-        val sig = SignalEngine(config).evaluate(candles, avgPrice.takeIf { it > 0 })
+        val sig = SignalEngine(config).evaluate(candles, avgPrice.takeIf { it > 0 }, entryDate = entryDate)
         if (sig.type == SignalType.SELL) {
             sell += 2
             reasons += "Signal de vente : ${sig.reasons.joinToString(" · ")}"
@@ -80,15 +81,25 @@ object ExitAdvisor {
             else -> ExitAction.HOLD
         }
 
+        // Pas de revirement sans information nouvelle : tant qu'aucune séance n'a eu lieu
+        // depuis l'achat (achat hors séance, ou le jour même), on ne conseille pas de
+        // ressortir — sauf stop-loss atteint.
+        val noSessionSinceEntry = entryDate != null && candles.none { it.date > entryDate }
+        val stopHit = config.stopLossPct?.let { plPct / 100.0 <= it } == true
+        val settled = if (noSessionSinceEntry && !stopHit && baseAction != ExitAction.HOLD) {
+            reasons += "Position ouverte récemment : pas encore de nouvelle séance depuis l'achat, on attend avant de conclure"
+            ExitAction.HOLD
+        } else baseAction
+
         // Anti-répétition de l'allègement : si on a déjà conseillé d'alléger cette valeur
         // plus bas, on repasse sur « Conserver » tant que le cours n'a pas repris au moins
         // trimReArmPct au-dessus du cours de ce dernier allègement (nouvelle jambe de hausse).
         val reArmed = lastTrimPrice == null || price > lastTrimPrice * (1 + config.trimReArmPct)
-        val action = if (baseAction == ExitAction.TRIM && !reArmed) {
+        val action = if (settled == ExitAction.TRIM && !reArmed) {
             reasons += "Déjà allégé plus bas — on conserve le reste tant que la hausse " +
                 "ne repart pas d'au moins ${(config.trimReArmPct * 100).toInt()} %"
             ExitAction.HOLD
-        } else baseAction
+        } else settled
 
         if (action == ExitAction.HOLD && baseAction == ExitAction.HOLD)
             reasons += "Configuration encore favorable — conserver"

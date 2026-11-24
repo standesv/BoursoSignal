@@ -13,6 +13,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -44,7 +45,7 @@ private sealed class Dest(val route: String, val label: String, val icon: ImageV
 private val bottomDestinations = listOf(Dest.Ideas, Dest.Watchlist, Dest.Portfolio, Dest.Alerts, Dest.Settings)
 
 @Composable
-fun AppRoot(container: AppContainer) {
+fun AppRoot(container: AppContainer, openTicker: String? = null, onTickerOpened: () -> Unit = {}) {
     val navController = rememberNavController()
 
     Scaffold(
@@ -113,5 +114,12 @@ fun AppRoot(container: AppContainer) {
                 BacktestScreen(container, ticker, onBack = { navController.popBackStack() })
             }
         }
+    }
+
+    // Appui sur une notification : ouverture directe de la fiche de la valeur.
+    LaunchedEffect(openTicker) {
+        val ticker = openTicker ?: return@LaunchedEffect
+        navController.navigate("detail/$ticker") { launchSingleTop = true }
+        onTickerOpened()
     }
 }

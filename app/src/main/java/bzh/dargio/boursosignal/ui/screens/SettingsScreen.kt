@@ -255,7 +255,7 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
                     "complète vers 9h10 et 17h40. Si le téléphone est en veille profonde, Android peut " +
                     "retarder ces vérifications : autorise l'exécution en arrière-plan ci-dessus. " +
                     "Un conseil de vente est notifié dès sa détection, même hors de ta plage (mais jamais la nuit), " +
-                    "une seule fois. L'app ne vend jamais à ta place, ni en réel ni en test.",
+                    "une seule fois. L'app ne passe jamais d'ordre à ta place (ni achat ni vente), en réel comme en test. Appuie sur une notification pour ouvrir directement la fiche de la valeur.",
                 style = MaterialTheme.typography.bodySmall,
             )
 
@@ -263,9 +263,9 @@ fun SettingsScreen(container: AppContainer, onBacktest: () -> Unit) {
             HorizontalDivider()
             Text("Mode test (portefeuille fictif)", fontWeight = FontWeight.SemiBold)
             Text(
-                "Teste l'efficacité des signaux avec de l'argent fictif, sans aucun risque. Les achats " +
-                    "signalés sont simulés automatiquement ; les ventes ne le sont jamais : l'app te notifie " +
-                    "« Vendre » ou « Alléger » et tu vends toi-même dans l'onglet Portefeuille.",
+                "Teste l'efficacité des signaux avec de l'argent fictif, sans aucun risque. Aucun ordre " +
+                    "n'est jamais passé automatiquement : l'app te notifie (achat, « Vendre », « Alléger ») et " +
+                    "c'est toi qui achètes ou vends, depuis la fiche de la valeur ou l'onglet Portefeuille.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

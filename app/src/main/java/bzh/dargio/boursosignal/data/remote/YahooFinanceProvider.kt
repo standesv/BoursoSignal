@@ -56,7 +56,7 @@ class YahooFinanceProvider : MarketDataProvider {
                 val ts = result.timestamp ?: emptyList()
                 val q = result.indicators?.quote?.firstOrNull()
                     ?: throw ProviderException("Données de cours absentes")
-                ts.indices.mapNotNull { i ->
+                val candles = ts.indices.mapNotNull { i ->
                     val close = q.close?.getOrNull(i) ?: return@mapNotNull null
                     Candle(
                         date = Instant.ofEpochSecond(ts[i]).atZone(zone).toLocalDate().toString(),
@@ -66,7 +66,32 @@ class YahooFinanceProvider : MarketDataProvider {
                         close = close,
                         volume = q.volume?.getOrNull(i) ?: 0.0,
                     )
+                }.toMutableList()
+
+                // Yahoo publie parfois la dernière séance SANS cours de clôture (null) : elle
+                // disparaissait alors et la valeur semblait figée à la séance précédente.
+                // On la complète avec le dernier cours connu (regularMarketPrice).
+                val livePrice = result.meta?.regularMarketPrice
+                val liveTime = result.meta?.regularMarketTime
+                if (livePrice != null && livePrice > 0.0 && liveTime != null) {
+                    val liveDate = Instant.ofEpochSecond(liveTime).atZone(zone).toLocalDate().toString()
+                    val lastDate = candles.lastOrNull()?.date
+                    if (lastDate == null || liveDate > lastDate) {
+                        val i = ts.indexOfLast { Instant.ofEpochSecond(it).atZone(zone).toLocalDate().toString() == liveDate }
+                        val open = (if (i >= 0) q.open?.getOrNull(i) else null) ?: livePrice
+                        val high = (if (i >= 0) q.high?.getOrNull(i) else null) ?: livePrice
+                        val low = (if (i >= 0) q.low?.getOrNull(i) else null) ?: livePrice
+                        candles += Candle(
+                            date = liveDate,
+                            open = open,
+                            high = maxOf(high, open, livePrice),
+                            low = minOf(low, open, livePrice),
+                            close = livePrice,
+                            volume = (if (i >= 0) q.volume?.getOrNull(i) else null) ?: 0.0,
+                        )
+                    }
                 }
+                candles
             }
         }
 
@@ -103,8 +128,16 @@ internal data class YahooChart(val result: List<YahooResult>? = null)
 
 @Serializable
 internal data class YahooResult(
+    val meta: YahooMeta? = null,
     val timestamp: List<Long>? = null,
     val indicators: YahooIndicators? = null,
+)
+
+/** Métadonnées : dernier cours connu et son horodatage (epoch secondes). */
+@Serializable
+internal data class YahooMeta(
+    val regularMarketPrice: Double? = null,
+    val regularMarketTime: Long? = null,
 )
 
 @Serializable

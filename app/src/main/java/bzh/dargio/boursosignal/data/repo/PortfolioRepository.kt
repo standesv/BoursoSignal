@@ -14,6 +14,10 @@ class PortfolioRepository(private val dao: PortfolioDao) {
     fun observeCash(): Flow<PortfolioCashEntity?> = dao.observeCash()
     suspend fun position(ticker: String): PositionEntity? = dao.position(ticker)
 
+    /** Date du dernier achat saisi pour une valeur (null si aucune transaction d'achat). */
+    suspend fun entryDate(ticker: String): String? =
+        dao.transactionsFor(ticker).filter { it.type == "BUY" }.maxOfOrNull { it.date }
+
     /** Définit (ou corrige) le montant de liquidités de base. Valeur absolue. */
     suspend fun setCash(amount: Double) {
         dao.upsertCash(PortfolioCashEntity(id = 0, cash = amount, initialized = true))

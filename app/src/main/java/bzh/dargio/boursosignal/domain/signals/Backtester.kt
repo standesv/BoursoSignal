@@ -58,7 +58,10 @@ class Backtester(private val config: StrategyConfig = StrategyConfig()) {
             val window = candles.subList(0, i + 1)
             val price = candles[i].close
             val entry = if (inPosition) entryPrice else null
-            val signal = engine.evaluate(window, entry, regimeByDate?.get(candles[i].date))
+            val signal = engine.evaluate(
+                window, entry, regimeByDate?.get(candles[i].date),
+                entryDate = if (inPosition) entryDate else null,
+            )
 
             if (!inPosition && signal.type == SignalType.BUY) {
                 inPosition = true

@@ -158,8 +158,9 @@ private fun RealPortfolio(container: AppContainer, nameOf: (String) -> String, o
         value = positions.map { p ->
             val candles = container.marketRepository.refresh(p.ticker).getOrNull()
                 ?: container.marketRepository.cachedCandles(p.ticker)
-            val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(container, p.ticker, p.avgPrice, candles, cfg, regime)
-                .also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, false, it, allowSell = true, allowTrim = true) } else null
+            val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(
+                container, p.ticker, p.avgPrice, candles, cfg, regime, container.portfolioRepository.entryDate(p.ticker),
+            ).also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, false, it, allowSell = true, allowTrim = true) } else null
             PositionView(p, candles.lastOrNull()?.close, candles.lastOrNull()?.date, advice)
         }.sortedBy { priority(it.advice?.action) }
     }
@@ -362,8 +363,9 @@ private fun TestPortfolio(container: AppContainer, nameOf: (String) -> String, o
                 ?: container.marketRepository.cachedCandles(p.ticker)
             val price = candles.lastOrNull()?.close ?: p.avgPrice
             val date = candles.lastOrNull()?.date
-            val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(container, p.ticker, p.avgPrice, candles, cfg, regime)
-                .also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, true, it, allowSell = true, allowTrim = true) } else null
+            val advice = if (candles.isNotEmpty()) PositionAlerts.adviceFor(
+                container, p.ticker, p.avgPrice, candles, cfg, regime, p.openedDate,
+            ).also { PositionAlerts.notifyIfNew(alertContext, container, p.ticker, true, it, allowSell = true, allowTrim = true) } else null
             map[p.ticker] = PriceInfo(price, date, advice)
         }
         value = map
